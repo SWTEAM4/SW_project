@@ -1,29 +1,30 @@
-#define _CRT_SECURE_NO_WARNINGS
+﻿#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include "crypto_api.h"
+#include "aes.h"
 
 /*****************************************************
  * AES (Advanced Encryption Standard) 내부 헬퍼 함수들
  * 이 함수들은 AES 암호화의 핵심 구성 요소입니다.
  *****************************************************/
 
-/**
- * @brief xtimes: GF(2^8) 상에서의 곱셈 연산. MixColumns에서 사용됩니다.
- * * AES는 '갈루아 필드(Galois Field)'라는 특수한 수학적 공간에서 연산을 수행합니다.
- * 이 함수는 입력 바이트에 2를 곱하는 연산을 GF(2^8) 규칙에 따라 수행합니다.
- * 일반적인 곱셈과 달리, 최상위 비트(MSB)가 1이면 XOR 연산(0x1b)이 추가로 발생합니다.
- * 이는 곱셈 결과가 1바이트(8비트)를 넘어가지 않도록 보장하기 위함입니다.
- */
+ /**
+  * @brief xtimes: GF(2^8) 상에서의 곱셈 연산. MixColumns에서 사용됩니다.
+  * * AES는 '갈루아 필드(Galois Field)'라는 특수한 수학적 공간에서 연산을 수행합니다.
+  * 이 함수는 입력 바이트에 2를 곱하는 연산을 GF(2^8) 규칙에 따라 수행합니다.
+  * 일반적인 곱셈과 달리, 최상위 비트(MSB)가 1이면 XOR 연산(0x1b)이 추가로 발생합니다.
+  * 이는 곱셈 결과가 1바이트(8비트)를 넘어가지 않도록 보장하기 위함입니다.
+  */
 #define xtimes(input) (((input) << 1) ^ (((input) >> 7) * 0x1b))
 
-/**
- * @brief s_box: SubBytes 연산에 사용되는 치환 테이블.
- * * S-Box는 AES의 비선형성을 제공하는 핵심 요소입니다. 입력 바이트를 미리 정해진 다른 바이트로
- * 완전히 대체하여, 암호문이 원래 평문과 통계적 관계를 갖기 어렵게 만듭니다. (혼돈 효과)
- * 이 테이블 값은 특정 수학적 계산(역원 계산 + 아핀 변환)을 통해 설계되었습니다.
- */
+  /**
+   * @brief s_box: SubBytes 연산에 사용되는 치환 테이블.
+   * * S-Box는 AES의 비선형성을 제공하는 핵심 요소입니다. 입력 바이트를 미리 정해진 다른 바이트로
+   * 완전히 대체하여, 암호문이 원래 평문과 통계적 관계를 갖기 어렵게 만듭니다. (혼돈 효과)
+   * 이 테이블 값은 특정 수학적 계산(역원 계산 + 아핀 변환)을 통해 설계되었습니다.
+   */
 static const uint8_t s_box[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -180,7 +181,8 @@ static void KeySchedule256(const uint8_t* key, AES_CTX* ctx) {
             RotWord(temp);
             SubWord(temp);
             temp[0] ^= Rcon[i / ctx->Nk];
-        } else if (i % ctx->Nk == 4) { // 256비트 키 스케줄에만 있는 추가 규칙
+        }
+        else if (i % ctx->Nk == 4) { // 256비트 키 스케줄에만 있는 추가 규칙
             SubWord(temp);
         }
         w[i * 4 + 0] = w[(i - ctx->Nk) * 4 + 0] ^ temp[0];
@@ -196,35 +198,35 @@ static void KeySchedule256(const uint8_t* key, AES_CTX* ctx) {
  * 헤더 파일(crypto_api.h)에 선언된 함수들을 실제로 구현하는 부분입니다.
  *****************************************************/
 
-/**
- * @brief AES_set_key: 사용자가 제공한 마스터 키로 AES 컨텍스트를 초기화하고,
- * 모든 라운드 키를 미리 생성합니다.
- * @param ctx AES 상태를 저장할 컨텍스트 구조체 포인터
- * @param key 마스터 키
- * @param key_bits 키의 비트 길이 (128, 192, 256)
- * @return 성공 시 CRYPTO_SUCCESS, 실패 시 오류 코드
- */
+ /**
+  * @brief AES_set_key: 사용자가 제공한 마스터 키로 AES 컨텍스트를 초기화하고,
+  * 모든 라운드 키를 미리 생성합니다.
+  * @param ctx AES 상태를 저장할 컨텍스트 구조체 포인터
+  * @param key 마스터 키
+  * @param key_bits 키의 비트 길이 (128, 192, 256)
+  * @return 성공 시 CRYPTO_SUCCESS, 실패 시 오류 코드
+  */
 CRYPTO_STATUS AES_set_key(AES_CTX* ctx, const uint8_t* key, int key_bits) {
     if (!ctx || !key) return CRYPTO_ERR_NULL_CONTEXT;
-    
+
     ctx->key_bits = key_bits;
     ctx->Nk = key_bits / 32; // Nk: 키 길이를 32비트 워드 단위로 나타낸 값
 
     switch (key_bits) {
-        case 128:
-            ctx->Nr = AES_ROUND_128; // Nr: 라운드 수
-            KeySchedule128(key, ctx);
-            break;
-        case 192:
-            ctx->Nr = AES_ROUND_192;
-            KeySchedule192(key, ctx);
-            break;
-        case 256:
-            ctx->Nr = AES_ROUND_256;
-            KeySchedule256(key, ctx);
-            break;
-        default:
-            return CRYPTO_ERR_INVALID_ARGUMENT; // 지원하지 않는 키 길이
+    case 128:
+        ctx->Nr = AES_ROUND_128; // Nr: 라운드 수
+        KeySchedule128(key, ctx);
+        break;
+    case 192:
+        ctx->Nr = AES_ROUND_192;
+        KeySchedule192(key, ctx);
+        break;
+    case 256:
+        ctx->Nr = AES_ROUND_256;
+        KeySchedule256(key, ctx);
+        break;
+    default:
+        return CRYPTO_ERR_INVALID_ARGUMENT; // 지원하지 않는 키 길이
     }
     return CRYPTO_SUCCESS;
 }
@@ -241,7 +243,7 @@ CRYPTO_STATUS AES_encrypt_block(const AES_CTX* ctx, const uint8_t in[AES_BLOCK_S
 
     // 1. 입력 평문을 4x4 state 행렬로 변환
     uint8_t state[4][4];
-    for(int i=0; i<4; i++) for(int j=0; j<4; j++) state[j][i] = in[i*4+j];
+    for (int i = 0; i < 4; i++) for (int j = 0; j < 4; j++) state[j][i] = in[i * 4 + j];
 
     // 2. 초기 라운드: AddRoundKey
     AddRoundKey(state, ctx->round_keys);
@@ -260,13 +262,13 @@ CRYPTO_STATUS AES_encrypt_block(const AES_CTX* ctx, const uint8_t in[AES_BLOCK_S
     AddRoundKey(state, ctx->round_keys + ctx->Nr * 16);
 
     // 5. state 행렬을 출력 버퍼로 변환
-    for(int i=0; i<4; i++) for(int j=0; j<4; j++) out[i*4+j] = state[j][i];
+    for (int i = 0; i < 4; i++) for (int j = 0; j < 4; j++) out[i * 4 + j] = state[j][i];
     return CRYPTO_SUCCESS;
 }
 
 // AES_decrypt_block 은 이번 과제에서 필요 없으므로 구현하지 않음
 CRYPTO_STATUS AES_decrypt_block(const AES_CTX* ctx, const uint8_t in[AES_BLOCK_SIZE], uint8_t out[AES_BLOCK_SIZE]) {
-    return CRYPTO_ERR_INTERNAL_FAILURE; 
+    return CRYPTO_ERR_INTERNAL_FAILURE;
 }
 
 
@@ -287,7 +289,7 @@ CRYPTO_STATUS AES_CTR_crypt(const AES_CTX* ctx, const uint8_t* in, size_t length
     if (!ctx) return CRYPTO_ERR_NULL_CONTEXT;
     if ((!in || !out) && length > 0) return CRYPTO_ERR_INVALID_INPUT;
     if (!nonce_counter) return CRYPTO_ERR_INVALID_INPUT;
-    
+
     uint8_t counter_block[AES_BLOCK_SIZE]; // 현재 카운터 값 (암호화 대상)
     uint8_t keystream_block[AES_BLOCK_SIZE]; // 카운터를 암호화한 결과 (키스트림)
     size_t offset = 0;
@@ -309,15 +311,15 @@ CRYPTO_STATUS AES_CTR_crypt(const AES_CTX* ctx, const uint8_t* in, size_t length
 
         length -= block_len;
         offset += block_len;
-        
+
         // 3. 다음 블록을 위해 카운터 값을 1 증가 (big-endian 방식)
         for (int i = AES_BLOCK_SIZE - 1; i >= 0; i--) {
             if (++counter_block[i] != 0) break; // 자리올림이 없으면 중단
         }
     }
-    
+
     // 최종적으로 증가된 카운터 값을 원래 nonce_counter 배열에 업데이트
-    memcpy(nonce_counter, counter_block, AES_BLOCK_SIZE); 
+    memcpy(nonce_counter, counter_block, AES_BLOCK_SIZE);
     return CRYPTO_SUCCESS;
 }
 
@@ -327,7 +329,7 @@ CRYPTO_STATUS AES_CTR_crypt(const AES_CTX* ctx, const uint8_t* in, size_t length
  * 정확하게 동작하는지 검증하는 역할을 합니다.
  *****************************************************/
 
-// 헬퍼 함수: 데이터를 16진수 문자열로 예쁘게 출력
+ // 헬퍼 함수: 데이터를 16진수 문자열로 예쁘게 출력
 void print_hex(const char* label, const unsigned char* data, int len) {
     printf("%-14s: ", label);
     for (int i = 0; i < len; i++) {
@@ -341,19 +343,19 @@ int compare_hex(const unsigned char* d1, const unsigned char* d2, int len) {
     return memcmp(d1, d2, len) == 0;
 }
 
-int main() {
+int test_aes() {
     printf("=======================================\n");
     printf("  NIST SP 800-38A CTR Mode Test Vector \n");
     printf("=======================================\n");
-    
+
     AES_CTX ctx;
 
     // --- AES-128 CTR Test ---
     printf("--- AES-128 CTR Test ---\n");
-    uint8_t key128[] = {0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c};
-    uint8_t pt128[] = {0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a};
-    uint8_t iv128[] = {0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff};
-    uint8_t expected_ct128[] = {0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce};
+    uint8_t key128[] = { 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
+    uint8_t pt128[] = { 0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a };
+    uint8_t iv128[] = { 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff };
+    uint8_t expected_ct128[] = { 0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce };
     uint8_t ct128[AES_BLOCK_SIZE];
 
     AES_set_key(&ctx, key128, 128); // 1. 키 설정
@@ -361,35 +363,35 @@ int main() {
 
     print_hex("Key", key128, sizeof(key128));
     print_hex("Plaintext", pt128, sizeof(pt128));
-    print_hex("IV", (uint8_t[]){0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff}, 16);
+    print_hex("IV", (uint8_t[]) { 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff }, 16);
     print_hex("Result", ct128, sizeof(ct128));
     print_hex("Expected", expected_ct128, sizeof(expected_ct128));
     printf("Verification  : %s\n\n", compare_hex(ct128, expected_ct128, sizeof(ct128)) ? "SUCCESS" : "FAILURE");
 
     // --- AES-192 CTR Test ---
     printf("--- AES-192 CTR Test ---\n");
-    uint8_t key192[] = {0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90, 0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b};
-    uint8_t pt192[] = {0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a};
-    uint8_t iv192[] = {0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff};
-    uint8_t expected_ct192[] = {0x1a, 0xbc, 0x93, 0x24, 0x17, 0x52, 0x1c, 0xa2, 0x4f, 0x2b, 0x04, 0x59, 0xfe, 0x7e, 0x6e, 0x0b};
+    uint8_t key192[] = { 0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90, 0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b };
+    uint8_t pt192[] = { 0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a };
+    uint8_t iv192[] = { 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff };
+    uint8_t expected_ct192[] = { 0x1a, 0xbc, 0x93, 0x24, 0x17, 0x52, 0x1c, 0xa2, 0x4f, 0x2b, 0x04, 0x59, 0xfe, 0x7e, 0x6e, 0x0b };
     uint8_t ct192[AES_BLOCK_SIZE];
 
     AES_set_key(&ctx, key192, 192);
     AES_CTR_crypt(&ctx, pt192, sizeof(pt192), ct192, iv192);
-    
+
     print_hex("Key", key192, sizeof(key192));
     print_hex("Plaintext", pt192, sizeof(pt192));
-    print_hex("IV", (uint8_t[]){0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff}, 16);
+    print_hex("IV", (uint8_t[]) { 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff }, 16);
     print_hex("Result", ct192, sizeof(ct192));
     print_hex("Expected", expected_ct192, sizeof(expected_ct192));
     printf("Verification  : %s\n\n", compare_hex(ct192, expected_ct192, sizeof(ct192)) ? "SUCCESS" : "FAILURE");
 
     // --- AES-256 CTR Test ---
     printf("--- AES-256 CTR Test ---\n");
-    uint8_t key256[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
-    uint8_t pt256[] = {0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a};
-    uint8_t iv256[] = {0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff};
-    uint8_t expected_ct256[] = {0x60, 0x1e, 0xc3, 0x13, 0x77, 0x57, 0x89, 0xa5, 0xb7, 0xa7, 0xf5, 0x04, 0xbb, 0xf3, 0xd2, 0x28};
+    uint8_t key256[] = { 0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4 };
+    uint8_t pt256[] = { 0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a };
+    uint8_t iv256[] = { 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff };
+    uint8_t expected_ct256[] = { 0x60, 0x1e, 0xc3, 0x13, 0x77, 0x57, 0x89, 0xa5, 0xb7, 0xa7, 0xf5, 0x04, 0xbb, 0xf3, 0xd2, 0x28 };
     uint8_t ct256[AES_BLOCK_SIZE];
 
     AES_set_key(&ctx, key256, 256);
@@ -397,7 +399,7 @@ int main() {
 
     print_hex("Key", key256, sizeof(key256));
     print_hex("Plaintext", pt256, sizeof(pt256));
-    print_hex("IV", (uint8_t[]){0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff}, 16);
+    print_hex("IV", (uint8_t[]) { 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff }, 16);
     print_hex("Result", ct256, sizeof(ct256));
     print_hex("Expected", expected_ct256, sizeof(expected_ct256));
     printf("Verification  : %s\n\n", compare_hex(ct256, expected_ct256, sizeof(ct256)) ? "SUCCESS" : "FAILURE");
