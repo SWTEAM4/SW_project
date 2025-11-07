@@ -63,9 +63,9 @@ extern "C" {
     } SHA512_CTX;
 
     /* --------------------------- SHA-256 기본 API --------------------------- */
-    CRYPTO_STATUS SHA512_init(SHA512_CTX* ctx); // 초기화: state를 초기 IV로 세팅하고 나머지 초기화
-    CRYPTO_STATUS SHA512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len); // 입력을 받아 128바이트 블록 단위로 압축
-    CRYPTO_STATUS SHA512_final(SHA512_CTX* ctx, uint8_t digest[SHA512_DIGEST_LENGTH]); // 패딩 + 마지막 압축 후 64바이트 해시 출력
+    CRYPTO_STATUS sha512_init(SHA512_CTX* ctx); // 초기화: state를 초기 IV로 세팅하고 나머지 초기화
+    CRYPTO_STATUS sha512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len); // 입력을 받아 128바이트 블록 단위로 압축
+    CRYPTO_STATUS sha512_final(SHA512_CTX* ctx, uint8_t digest[SHA512_DIGEST_LENGTH]); // 패딩 + 마지막 압축 후 64바이트 해시 출력
 
 #ifdef __cplusplus
 }
