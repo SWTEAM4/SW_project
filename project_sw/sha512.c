@@ -134,7 +134,7 @@ CRYPTO_STATUS sha512_update(SHA512_CTX* ctx, const uint8_t* data, size_t len) {
         if (len < fill) {
             memcpy(ctx->buffer + ctx->datalen, data, len);
             ctx->datalen += len;
-            return;
+            return CRYPTO_SUCCESS;
         }
         memcpy(ctx->buffer + ctx->datalen, data, fill);
 
