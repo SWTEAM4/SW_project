@@ -560,7 +560,7 @@ int compare_hex(const unsigned char* d1, const unsigned char* d2, int len) {
     return memcmp(d1, d2, len) == 0;
 }
 
-int main() {
+int test_aes() {
     printf("=======================================\n");
     printf("  NIST SP 800-38A CTR Mode Test Vector \n");
     printf("=======================================\n");
