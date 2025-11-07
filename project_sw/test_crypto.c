@@ -1,4 +1,4 @@
-#define _CRT_SECURE_NO_WARNINGS
+ï»¿#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdint.h>
 #include "crypto_api.h"
@@ -6,11 +6,11 @@
 #include <time.h>
 static double now_sec(void) { return (double)clock() / CLOCKS_PER_SEC; }
 
-/* ¿ÜºÎ Å×½ºÆ® ¿£Æ®¸® (±âÁ¸°ú µ¿ÀÏ) */
-int test_aes(void);     /* ¼º°ø ½Ã 0 */
-int test_sha512(void);  /* ¼º°ø ½Ã 0 */
+/* ì™¸ë¶€ í…ŒìŠ¤íŠ¸ ì—”íŠ¸ë¦¬ (ê¸°ì¡´ê³¼ ë™ì¼) */
+int test_aes(void);     /* ì„±ê³µ ì‹œ 0 */
+int test_sha512(void);  /* ì„±ê³µ ì‹œ 0 */
 
-// ====== [HMAC-SHA512] °íÇØ»óµµ Å¸ÀÌ¸Ó ======
+// ====== [HMAC-SHA512] ê³ í•´ìƒë„ íƒ€ì´ë¨¸ ======
 #ifdef _WIN32
 #include <windows.h>
 static double now_ms(void) {
@@ -35,37 +35,37 @@ int main(void)
     printf("       CRYPTO FUNCTION TEST START      \n");
     printf("=======================================\n\n");
 
-    printf("[1] AES CTR Mode Test ½ÃÀÛ\n");
-    if (test_aes() == 0)  printf("[AES] ¸ğµç AES CTR Mode Å×½ºÆ® º¤ÅÍ Åë°ú!\n\n");
-    else                  printf("[AES] AES CTR Mode Å×½ºÆ® ½ÇÆĞ!\n\n");
+    printf("[1] AES CTR Mode Test ì‹œì‘\n");
+    if (test_aes() == 0)  printf("[AES] ëª¨ë“  AES CTR Mode í…ŒìŠ¤íŠ¸ ë²¡í„° í†µê³¼!\n\n");
+    else                  printf("[AES] AES CTR Mode í…ŒìŠ¤íŠ¸ ì‹¤íŒ¨!\n\n");
 
-    printf("[2] SHA-512 Test ½ÃÀÛ...\n");
-    if (test_sha512() == 0) printf("[SHA512] ¸ğµç SHA-512 Å×½ºÆ® º¤ÅÍ Åë°ú!\n\n");
-    else                     printf("[SHA512] SHA-512 Å×½ºÆ® ½ÇÆĞ!\n\n");
+    printf("[2] SHA-512 Test ì‹œì‘...\n");
+    if (test_sha512() == 0) printf("[SHA512] ëª¨ë“  SHA-512 í…ŒìŠ¤íŠ¸ ë²¡í„° í†µê³¼!\n\n");
+    else                     printf("[SHA512] SHA-512 í…ŒìŠ¤íŠ¸ ì‹¤íŒ¨!\n\n");
 
-    // ----- HMAC-SHA512 ¿ä¾à Å×½ºÆ® -----
-    printf("[3] HMAC-SHA512 Self-Test ½ÃÀÛ...\n");
+    // ----- HMAC-SHA512 ìš”ì•½ í…ŒìŠ¤íŠ¸ -----
+    printf("[3] HMAC-SHA512 Self-Test ì‹œì‘...\n");
 
     int passed = 0, total = 0, failed_case = -1;
     double t0 = now_ms();
     int ok = hmac_sha512_selftest_summary(&passed, &total, &failed_case);
     double t1 = now_ms();
 
-    printf("Å×½ºÆ® ¿Ï·á: %d Áß %d Åë°ú\n", total, passed);
-    printf("ÃÑ ½ÇÇà ½Ã°£: %.6fÃÊ (%.3f ms)\n", (t1 - t0) / 1000.0, (t1 - t0));
+    printf("í…ŒìŠ¤íŠ¸ ì™„ë£Œ: %d ì¤‘ %d í†µê³¼\n", total, passed);
+    printf("ì´ ì‹¤í–‰ ì‹œê°„: %.6fì´ˆ (%.3f ms)\n", (t1 - t0) / 1000.0, (t1 - t0));
 
     if (ok) {
-        printf("HMAC-SHA512 Å×½ºÆ® Åë°ú!\n");
+        printf("HMAC-SHA512 í…ŒìŠ¤íŠ¸ í†µê³¼!\n");
     }
     else {
         if (failed_case > 0)
-            printf("HMAC-SHA512 Å×½ºÆ® ½ÇÆĞ! (½ÇÆĞ TC=%d)\n", failed_case);
+            printf("HMAC-SHA512 í…ŒìŠ¤íŠ¸ ì‹¤íŒ¨! (ì‹¤íŒ¨ TC=%d)\n", failed_case);
         else
-            printf("HMAC-SHA512 Å×½ºÆ® ½ÇÆĞ!\n");
+            printf("HMAC-SHA512 í…ŒìŠ¤íŠ¸ ì‹¤íŒ¨!\n");
     }
 
     printf("=======================================\n");
-    printf("        ¸ğµç CRYPTO TEST ¿Ï·á!         \n");
+    printf("        ëª¨ë“  CRYPTO TEST ì™„ë£Œ!         \n");
     printf("=======================================\n");
     return ok ? 0 : 1;
 }

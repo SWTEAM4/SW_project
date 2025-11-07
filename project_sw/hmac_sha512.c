@@ -1,4 +1,4 @@
-// hmac_sha512.c  — HMAC-SHA512 (streaming + one-shot) with RFC4231 self-tests
+﻿// hmac_sha512.c  — HMAC-SHA512 (streaming + one-shot) with RFC4231 self-tests
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>

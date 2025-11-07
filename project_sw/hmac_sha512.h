@@ -1,4 +1,4 @@
-#ifndef HMAC_SHA512_H
+﻿#ifndef HMAC_SHA512_H
 #define HMAC_SHA512_H
 
 #include <stddef.h>
