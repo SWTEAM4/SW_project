@@ -6,13 +6,14 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stddef.h>
 
 // .enc 파일 헤더 구조
 #define ENC_SIGNATURE "AESC"
 #define ENC_VERSION 0x01
 #define ENC_MODE_CTR 0x02
 #define ENC_HMAC_ENABLED 0x01
-#define ENC_HEADER_SIZE 32
+#define ENC_HEADER_SIZE 40
 #define ENC_NONCE_SIZE 8
 #define ENC_HMAC_SIZE 64
 
@@ -24,7 +25,8 @@ typedef struct {
     uint8_t mode_code;         // [6:7] 0x02=CTR
     uint8_t hmac_enabled;      // [7:8] 0x01=사용
     uint8_t nonce[8];          // [8:16] Nonce
-    uint8_t reserved[16];      // [16:32] Reserved
+    uint8_t format[8];         // [16:24] 원본 파일 확장자/시그니처 (예: ".hwp", ".png", ".jpeg", ".txt")
+    uint8_t reserved[16];      // [24:40] Reserved
 } EncFileHeader;
 
 // 패스워드 검증 (영문+숫자, 대소문자, 최대 10자)

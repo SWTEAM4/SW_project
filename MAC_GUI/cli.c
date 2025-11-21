@@ -102,7 +102,35 @@ void extract_extension(const char* file_path, char* ext, size_t ext_size) {
     }
 }
 
-// 파일 암호화
+// 청크 크기 정의 (64KB)
+#define FILE_CHUNK_SIZE (64 * 1024)
+
+// 진행률 표시 함수
+static void print_progress(long processed, long total, const char* operation) {
+    if (total <= 0) return;
+    
+    double percent = (double)processed / total * 100.0;
+    if (percent > 100.0) percent = 100.0;
+    
+    // Progress bar 길이 (50자)
+    int bar_width = 50;
+    int filled = (int)(percent / 100.0 * bar_width);
+    
+    printf("\r%s [", operation);
+    for (int i = 0; i < bar_width; i++) {
+        if (i < filled) {
+            printf("=");
+        } else if (i == filled) {
+            printf(">");
+        } else {
+            printf(" ");
+        }
+    }
+    printf("] %.1f%% (%ld / %ld bytes)", percent, processed, total);
+    fflush(stdout);
+}
+
+// 파일 암호화 (스트리밍 방식)
 int encrypt_file(const char* input_path, const char* output_path,
                  int aes_key_bits, const char* password) {
     FILE* fin = platform_fopen(input_path, "rb");
@@ -121,14 +149,7 @@ int encrypt_file(const char* input_path, const char* output_path,
         return 0;
     }
     
-    // 평문 읽기
-    uint8_t* plaintext = (uint8_t*)malloc(file_size);
-    if (!plaintext) {
-        fclose(fin);
-        return 0;
-    }
-    fread(plaintext, 1, file_size, fin);
-    fclose(fin);
+    printf("암호화 중...\n");
     
     // 키 도출
     uint8_t aes_key[32];
@@ -138,7 +159,7 @@ int encrypt_file(const char* input_path, const char* output_path,
     // AES 컨텍스트 설정
     AES_CTX aes_ctx;
     if (AES_set_key(&aes_ctx, aes_key, aes_key_bits) != CRYPTO_SUCCESS) {
-        free(plaintext);
+        fclose(fin);
         return 0;
     }
     
@@ -151,34 +172,16 @@ int encrypt_file(const char* input_path, const char* output_path,
     memcpy(nonce_counter, nonce, 8);
     memset(nonce_counter + 8, 0, 8);
     
-    // 암호화
-    uint8_t* ciphertext = (uint8_t*)malloc(file_size);
-    if (!ciphertext) {
-        free(plaintext);
-        return 0;
-    }
-    
-    if (AES_CTR_crypt(&aes_ctx, plaintext, file_size, ciphertext, nonce_counter) != CRYPTO_SUCCESS) {
-        free(plaintext);
-        free(ciphertext);
-        return 0;
-    }
-    
-    // HMAC 계산 (헤더 + nonce + ciphertext에 대해)
-    uint8_t hmac[64];
+    // HMAC 초기화
     HMAC_SHA512_CTX hmac_ctx;
     hmac_sha512_init(&hmac_ctx, hmac_key, 24);
-    
-    // 헤더 정보를 HMAC에 포함 (실제로는 nonce와 ciphertext만 포함)
-    hmac_sha512_update(&hmac_ctx, nonce, 8);
-    hmac_sha512_update(&hmac_ctx, ciphertext, file_size);
-    hmac_sha512_final(&hmac_ctx, hmac);
+    hmac_sha512_update(&hmac_ctx, nonce, 8);  // nonce를 HMAC에 포함
     
     // 원본 파일 확장자 추출 및 헤더에 저장
     char original_ext[16];
     extract_extension(input_path, original_ext, sizeof(original_ext));
     size_t ext_len = strlen(original_ext);
-    if (ext_len > 15) ext_len = 15; // 최대 15바이트
+    if (ext_len > 7) ext_len = 7; // 최대 7바이트 (format[8]에 널 종료 문자 공간 확보)
     
     // 헤더 작성
     EncFileHeader header;
@@ -189,28 +192,68 @@ int encrypt_file(const char* input_path, const char* output_path,
     header.mode_code = ENC_MODE_CTR;
     header.hmac_enabled = ENC_HMAC_ENABLED;
     memcpy(header.nonce, nonce, 8);
-    memset(header.reserved, 0, 16);
-    // reserved[0]: 확장자 길이, reserved[1~15]: 확장자 문자열
-    header.reserved[0] = (uint8_t)ext_len;
+    memset(header.format, 0, 8);
+    // format에 확장자 문자열 저장 (예: ".hwp", ".png", ".jpeg", ".txt")
     if (ext_len > 0) {
-        memcpy(header.reserved + 1, original_ext, ext_len);
+        memcpy(header.format, original_ext, ext_len);
     }
+    memset(header.reserved, 0, 16);
     
     // 출력 파일 작성
     FILE* fout = platform_fopen(output_path, "wb");
     if (!fout) {
-        free(plaintext);
-        free(ciphertext);
+        fclose(fin);
         return 0;
     }
     
+    // 헤더 먼저 쓰기
     fwrite(&header, 1, sizeof(header), fout);
-    fwrite(ciphertext, 1, file_size, fout);
+    
+    // 청크 단위로 파일 읽기, 암호화, 쓰기
+    uint8_t buffer[FILE_CHUNK_SIZE];
+    size_t bytes_read;
+    long total_processed = 0;
+    int success = 1;
+    
+    while ((bytes_read = fread(buffer, 1, FILE_CHUNK_SIZE, fin)) > 0) {
+        // 청크 암호화 (in-place)
+        if (AES_CTR_crypt(&aes_ctx, buffer, bytes_read, buffer, nonce_counter) != CRYPTO_SUCCESS) {
+            success = 0;
+            break;
+        }
+        
+        // HMAC 업데이트 (암호문에 대해)
+        hmac_sha512_update(&hmac_ctx, buffer, bytes_read);
+        
+        // 암호문 쓰기
+        if (fwrite(buffer, 1, bytes_read, fout) != bytes_read) {
+            success = 0;
+            break;
+        }
+        
+        // 진행률 업데이트
+        total_processed += bytes_read;
+        print_progress(total_processed, file_size, "암호화");
+    }
+    
+    fclose(fin);
+    
+    if (!success) {
+        fclose(fout);
+        return 0;
+    }
+    
+    // HMAC 최종 계산
+    uint8_t hmac[64];
+    hmac_sha512_final(&hmac_ctx, hmac);
+    
+    // HMAC 쓰기
     fwrite(hmac, 1, 64, fout);
     fclose(fout);
     
-    free(plaintext);
-    free(ciphertext);
+    // 진행률 완료 표시
+    print_progress(file_size, file_size, "암호화");
+    printf("\n암호화 완료!\n");
     
     return 1;
 }
@@ -242,7 +285,7 @@ int read_aes_key_length(const char* input_path) {
     else return 0;
 }
 
-// 파일 복호화
+// 파일 복호화 (스트리밍 방식)
 // 실제 저장된 파일 경로를 final_output_path에 저장
 int decrypt_file(const char* input_path, const char* output_path,
                  const char* password, char* final_output_path, size_t final_path_size) {
@@ -280,18 +323,14 @@ int decrypt_file(const char* input_path, const char* output_path,
         return 0;
     }
     
-    // 암호문 읽기
-    uint8_t* ciphertext = (uint8_t*)malloc(ciphertext_size);
-    if (!ciphertext) {
+    // HMAC 위치로 이동하여 읽기
+    fseek(fin, file_size - 64, SEEK_SET);
+    uint8_t stored_hmac[64];
+    if (fread(stored_hmac, 1, 64, fin) != 64) {
         fclose(fin);
+        printf("오류: HMAC를 읽을 수 없습니다.\n");
         return 0;
     }
-    fread(ciphertext, 1, ciphertext_size, fin);
-    
-    // HMAC 읽기
-    uint8_t stored_hmac[64];
-    fread(stored_hmac, 1, 64, fin);
-    fclose(fin);
     
     // AES 키 길이 결정
     int aes_key_bits;
@@ -299,7 +338,7 @@ int decrypt_file(const char* input_path, const char* output_path,
     else if (header.key_length_code == 0x02) aes_key_bits = 192;
     else if (header.key_length_code == 0x03) aes_key_bits = 256;
     else {
-        free(ciphertext);
+        fclose(fin);
         printf("오류: 지원하지 않는 AES 키 길이입니다.\n");
         return 0;
     }
@@ -309,24 +348,55 @@ int decrypt_file(const char* input_path, const char* output_path,
     uint8_t hmac_key[24];
     derive_keys(password, aes_key_bits, aes_key, hmac_key);
     
-    // HMAC 검증
-    uint8_t computed_hmac[64];
+    printf("HMAC 검증 중...\n");
+    
+    // HMAC 검증을 위한 초기화
     HMAC_SHA512_CTX hmac_ctx;
     hmac_sha512_init(&hmac_ctx, hmac_key, 24);
     hmac_sha512_update(&hmac_ctx, header.nonce, 8);
-    hmac_sha512_update(&hmac_ctx, ciphertext, ciphertext_size);
+    
+    // 암호문 위치로 다시 이동
+    fseek(fin, sizeof(header), SEEK_SET);
+    
+    // HMAC 검증을 위해 암호문을 읽으면서 HMAC 계산
+    uint8_t buffer[FILE_CHUNK_SIZE];
+    size_t bytes_read;
+    long total_read = 0;
+    
+    while (total_read < ciphertext_size) {
+        size_t to_read = (ciphertext_size - total_read < FILE_CHUNK_SIZE) ? 
+                         (ciphertext_size - total_read) : FILE_CHUNK_SIZE;
+        bytes_read = fread(buffer, 1, to_read, fin);
+        if (bytes_read == 0) break;
+        
+        // HMAC 업데이트
+        hmac_sha512_update(&hmac_ctx, buffer, bytes_read);
+        total_read += bytes_read;
+        
+        // 진행률 업데이트
+        print_progress(total_read, ciphertext_size, "HMAC 검증");
+    }
+    
+    // HMAC 최종 계산 및 검증
+    uint8_t computed_hmac[64];
     hmac_sha512_final(&hmac_ctx, computed_hmac);
     
+    // HMAC 검증 완료 표시
+    print_progress(ciphertext_size, ciphertext_size, "HMAC 검증");
+    printf("\n");
+    
     if (memcmp(stored_hmac, computed_hmac, 64) != 0) {
-        free(ciphertext);
+        fclose(fin);
         printf("오류: HMAC 무결성 검증 실패. 파일이 손상되었거나 패스워드가 잘못되었습니다.\n");
         return 0;
     }
     
+    printf("HMAC 검증 성공! 복호화 중...\n");
+    
     // AES 컨텍스트 설정
     AES_CTX aes_ctx;
     if (AES_set_key(&aes_ctx, aes_key, aes_key_bits) != CRYPTO_SUCCESS) {
-        free(ciphertext);
+        fclose(fin);
         return 0;
     }
     
@@ -335,22 +405,11 @@ int decrypt_file(const char* input_path, const char* output_path,
     memcpy(nonce_counter, header.nonce, 8);
     memset(nonce_counter + 8, 0, 8);
     
-    // 복호화
-    uint8_t* plaintext = (uint8_t*)malloc(ciphertext_size);
-    if (!plaintext) {
-        free(ciphertext);
-        return 0;
-    }
-    
-    if (AES_CTR_crypt(&aes_ctx, ciphertext, ciphertext_size, plaintext, nonce_counter) != CRYPTO_SUCCESS) {
-        free(plaintext);
-        free(ciphertext);
-        return 0;
-    }
-    
     // 헤더에서 원본 확장자 읽기
-    uint8_t ext_len = header.reserved[0];
-    if (ext_len > 15) ext_len = 15;
+    char format_ext[16] = {0};
+    strncpy(format_ext, (const char*)header.format, 8);
+    format_ext[8] = '\0';
+    size_t ext_len = strlen(format_ext);
     
     // 출력 파일 경로에 확장자 추가
     char actual_output_path[512];
@@ -371,7 +430,7 @@ int decrypt_file(const char* input_path, const char* output_path,
             // 확장자가 없으면 추가
             size_t path_len = strlen(actual_output_path);
             if (path_len + ext_len < sizeof(actual_output_path)) {
-                memcpy(actual_output_path + path_len, header.reserved + 1, ext_len);
+                strncpy(actual_output_path + path_len, format_ext, ext_len);
                 actual_output_path[path_len + ext_len] = '\0';
             }
         }
@@ -386,16 +445,56 @@ int decrypt_file(const char* input_path, const char* output_path,
     // 출력 파일 작성
     FILE* fout = platform_fopen(actual_output_path, "wb");
     if (!fout) {
-        free(plaintext);
-        free(ciphertext);
+        fclose(fin);
         return 0;
     }
     
-    fwrite(plaintext, 1, ciphertext_size, fout);
+    // 복호화를 위해 다시 암호문 위치로 이동
+    fseek(fin, sizeof(header), SEEK_SET);
+    
+    // 청크 단위로 읽기, 복호화, 쓰기
+    total_read = 0;
+    int success = 1;
+    
+    while (total_read < ciphertext_size) {
+        size_t to_read = (ciphertext_size - total_read < FILE_CHUNK_SIZE) ? 
+                         (ciphertext_size - total_read) : FILE_CHUNK_SIZE;
+        bytes_read = fread(buffer, 1, to_read, fin);
+        if (bytes_read == 0) break;
+        
+        // 청크 복호화 (in-place)
+        if (AES_CTR_crypt(&aes_ctx, buffer, bytes_read, buffer, nonce_counter) != CRYPTO_SUCCESS) {
+            success = 0;
+            break;
+        }
+        
+        // 평문 쓰기
+        if (fwrite(buffer, 1, bytes_read, fout) != bytes_read) {
+            success = 0;
+            break;
+        }
+        
+        total_read += bytes_read;
+        
+        // 진행률 업데이트
+        print_progress(total_read, ciphertext_size, "복호화");
+    }
+    
+    fclose(fin);
+    
+    if (!success) {
+        fclose(fout);
+        // 실패 시 출력 파일 삭제
+        remove(actual_output_path);
+        printf("\n복호화 실패!\n");
+        return 0;
+    }
+    
     fclose(fout);
     
-    free(plaintext);
-    free(ciphertext);
+    // 진행률 완료 표시
+    print_progress(ciphertext_size, ciphertext_size, "복호화");
+    printf("\n복호화 완료!\n");
     
     return 1;
 }
