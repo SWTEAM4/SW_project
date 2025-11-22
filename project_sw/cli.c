@@ -1,0 +1,683 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <time.h>
+#include "crypto_api.h"
+#include "aes.h"
+#include "sha512.h"
+#include "hmac_sha512.h"
+#include "kdf.h"
+#include "file_crypto.h"
+#include "platform_utils.h"
+
+#ifdef PLATFORM_WINDOWS
+#include <windows.h>
+#ifndef CP_UTF8
+#define CP_UTF8 65001
+#endif
+#endif
+
+// 청크 크기 정의 (64KB)
+#define FILE_CHUNK_SIZE (64 * 1024)
+
+// 패스워드 검증 (영문+숫자, 대소문자, 최대 10자)
+int validate_password(const char* password) {
+    if (!password) return 0;
+    size_t len = strlen(password);
+    if (len == 0 || len > 10) return 0;
+    
+    for (size_t i = 0; i < len; i++) {
+        char c = password[i];
+        if (!((c >= 'A' && c <= 'Z') || 
+              (c >= 'a' && c <= 'z') || 
+              (c >= '0' && c <= '9'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// 키 도출: KDF -> SHA512 -> AES 키 + HMAC 키
+void derive_keys(const char* password, int aes_key_bits, 
+                 uint8_t* aes_key, uint8_t* hmac_key) {
+    // 1. 패스워드를 KDF를 통해서 SHA512 입력으로 변환
+    uint8_t kdf_output[64];
+    pbkdf2_sha512((const uint8_t*)password, strlen(password),
+                  NULL, 0, 10000, kdf_output, 64);
+    
+    // 2. KDF 출력을 SHA512 입력으로 사용하여 해싱
+    SHA512_CTX ctx;
+    sha512_init(&ctx);
+    sha512_update(&ctx, kdf_output, 64);
+    uint8_t sha512_output[64];
+    sha512_final(&ctx, sha512_output);
+    
+    // 3. SHA512 출력에서 앞의 n바이트를 AES 키로
+    int aes_key_bytes = aes_key_bits / 8;
+    memcpy(aes_key, sha512_output, aes_key_bytes);
+    
+    // 4. SHA512 출력에서 뒤의 192비트(24바이트)를 HMAC 키로
+    memcpy(hmac_key, sha512_output + (64 - 24), 24);
+}
+
+// 랜덤 nonce 생성 (OpenSSL RAND_bytes 사용)
+int generate_nonce(uint8_t* nonce, size_t len) {
+    if (crypto_random_bytes(nonce, len) == CRYPTO_SUCCESS) {
+        return 1;
+    }
+    // OpenSSL이 없는 경우 fallback (보안상 권장하지 않음)
+    srand((unsigned int)time(NULL));
+    for (size_t i = 0; i < len; i++) {
+        nonce[i] = (uint8_t)(rand() & 0xFF);
+    }
+    return 0; // fallback 사용됨을 표시
+}
+
+// 파일 경로에서 확장자 추출 (예: "file.txt" -> ".txt")
+// 확장자가 없으면 빈 문자열 반환
+void extract_extension(const char* file_path, char* ext, size_t ext_size) {
+    if (!file_path || !ext || ext_size == 0) {
+        if (ext && ext_size > 0) ext[0] = '\0';
+        return;
+    }
+    
+    const char* last_dot = strrchr(file_path, '.');
+    const char* last_slash = strrchr(file_path, '/');
+#ifdef _WIN32
+    const char* last_backslash = strrchr(file_path, '\\');
+    if (last_backslash && (!last_slash || last_backslash > last_slash)) {
+        last_slash = last_backslash;
+    }
+#endif
+    
+    if (last_dot && (!last_slash || last_dot > last_slash)) {
+        size_t ext_len = strlen(last_dot);
+        if (ext_len < ext_size) {
+            strncpy(ext, last_dot, ext_size - 1);
+            ext[ext_size - 1] = '\0';
+        } else {
+            ext[0] = '\0';
+        }
+    } else {
+        ext[0] = '\0';
+    }
+}
+
+// 진행률 표시 함수
+static void print_progress(long processed, long total, const char* operation) {
+    if (total <= 0) return;
+    
+    double percent = (double)processed / total * 100.0;
+    if (percent > 100.0) percent = 100.0;
+    
+    // Progress bar 길이 (50자)
+    int bar_width = 50;
+    int filled = (int)(percent / 100.0 * bar_width);
+    
+    printf("\r%s [", operation);
+    for (int i = 0; i < bar_width; i++) {
+        if (i < filled) {
+            printf("=");
+        } else if (i == filled) {
+            printf(">");
+        } else {
+            printf(" ");
+        }
+    }
+    printf("] %.1f%% (%ld / %ld bytes)", percent, processed, total);
+    fflush(stdout);
+}
+
+// 내부 구현 함수 (콜백 지원)
+static int encrypt_file_internal(const char* input_path, const char* output_path,
+                                 int aes_key_bits, const char* password,
+                                 progress_callback_t progress_cb, void* user_data) {
+    FILE* fin = platform_fopen(input_path, "rb");
+    if (!fin) {
+        if (!progress_cb) printf("오류: 파일을 열 수 없습니다: %s\n", input_path);
+        return 0;
+    }
+    
+    // 파일 크기 확인
+    fseek(fin, 0, SEEK_END);
+    long file_size = ftell(fin);
+    fseek(fin, 0, SEEK_SET);
+    
+    if (file_size < 0) {
+        fclose(fin);
+        return 0;
+    }
+    
+    if (!progress_cb) printf("암호화 중...\n");
+    
+    // 키 도출
+    uint8_t aes_key[32];
+    uint8_t hmac_key[24];
+    derive_keys(password, aes_key_bits, aes_key, hmac_key);
+    
+    // AES 컨텍스트 설정
+    AES_CTX aes_ctx;
+    if (AES_set_key(&aes_ctx, aes_key, aes_key_bits) != CRYPTO_SUCCESS) {
+        fclose(fin);
+        return 0;
+    }
+    
+    // Nonce 생성
+    uint8_t nonce[8];
+    generate_nonce(nonce, 8);
+    
+    // CTR 모드용 nonce_counter (8바이트 nonce + 8바이트 카운터)
+    uint8_t nonce_counter[16];
+    memcpy(nonce_counter, nonce, 8);
+    memset(nonce_counter + 8, 0, 8);
+    
+    // HMAC 초기화
+    HMAC_SHA512_CTX hmac_ctx;
+    hmac_sha512_init(&hmac_ctx, hmac_key, 24);
+    hmac_sha512_update(&hmac_ctx, nonce, 8);  // nonce를 HMAC에 포함
+    
+    // 원본 파일 확장자 추출 및 헤더에 저장
+    char original_ext[16];
+    extract_extension(input_path, original_ext, sizeof(original_ext));
+    size_t ext_len = strlen(original_ext);
+    if (ext_len > 7) ext_len = 7; // 최대 7바이트 (format[8]에 널 종료 문자 공간 확보)
+    
+    // 헤더 작성
+    EncFileHeader header;
+    memcpy(header.signature, ENC_SIGNATURE, 4);
+    header.version = ENC_VERSION;
+    header.key_length_code = (aes_key_bits == 128) ? 0x01 : 
+                             (aes_key_bits == 192) ? 0x02 : 0x03;
+    header.mode_code = ENC_MODE_CTR;
+    header.hmac_enabled = ENC_HMAC_ENABLED;
+    memcpy(header.nonce, nonce, 8);
+    memset(header.format, 0, 8);
+    // format에 확장자 문자열 저장 (예: ".hwp", ".png", ".jpeg", ".txt")
+    if (ext_len > 0) {
+        memcpy(header.format, original_ext, ext_len);
+    }
+    memset(header.reserved, 0, 16);
+    
+    // 출력 파일 작성
+    FILE* fout = platform_fopen(output_path, "wb");
+    if (!fout) {
+        fclose(fin);
+        return 0;
+    }
+    
+    // 헤더 먼저 쓰기
+    fwrite(&header, 1, sizeof(header), fout);
+    
+    // 청크 단위로 파일 읽기, 암호화, 쓰기
+    uint8_t buffer[FILE_CHUNK_SIZE];
+    size_t bytes_read;
+    long total_processed = 0;
+    int success = 1;
+    
+    while ((bytes_read = fread(buffer, 1, FILE_CHUNK_SIZE, fin)) > 0) {
+        // 청크 암호화 (in-place)
+        if (AES_CTR_crypt(&aes_ctx, buffer, bytes_read, buffer, nonce_counter) != CRYPTO_SUCCESS) {
+            success = 0;
+            break;
+        }
+        
+        // HMAC 업데이트 (암호문에 대해)
+        hmac_sha512_update(&hmac_ctx, buffer, bytes_read);
+        
+        // 암호문 쓰기
+        if (fwrite(buffer, 1, bytes_read, fout) != bytes_read) {
+            success = 0;
+            break;
+        }
+        
+        // 진행률 업데이트 - 콜백이 있으면 콜백, 없으면 print_progress
+        total_processed += bytes_read;
+        if (progress_cb) {
+            progress_cb(total_processed, file_size, user_data);
+        } else {
+            print_progress(total_processed, file_size, "암호화");
+        }
+    }
+    
+    fclose(fin);
+    
+    if (!success) {
+        fclose(fout);
+        return 0;
+    }
+    
+    // HMAC 최종 계산
+    uint8_t hmac[64];
+    hmac_sha512_final(&hmac_ctx, hmac);
+    
+    // HMAC 쓰기
+    fwrite(hmac, 1, 64, fout);
+    fclose(fout);
+    
+    // 진행률 완료 표시
+    if (progress_cb) {
+        progress_cb(file_size, file_size, user_data);
+    } else {
+        print_progress(file_size, file_size, "암호화");
+        printf("\n암호화 완료!\n");
+    }
+    
+    return 1;
+}
+
+// 기존 함수 (CLI용 - 내부 함수를 NULL 콜백으로 호출)
+int encrypt_file(const char* input_path, const char* output_path,
+                 int aes_key_bits, const char* password) {
+    return encrypt_file_internal(input_path, output_path, aes_key_bits, password, NULL, NULL);
+}
+
+// 새 함수 (GUI용 - 진행률 콜백 지원)
+int encrypt_file_with_progress(const char* input_path, const char* output_path,
+                               int aes_key_bits, const char* password,
+                               progress_callback_t progress_cb, void* user_data) {
+    return encrypt_file_internal(input_path, output_path, aes_key_bits, password, progress_cb, user_data);
+}
+
+// 헤더에서 AES 키 길이 읽기 (복호화 전 확인용)
+int read_aes_key_length(const char* input_path) {
+    FILE* fin = platform_fopen(input_path, "rb");
+    if (!fin) {
+        return 0;
+    }
+    
+    EncFileHeader header;
+    if (fread(&header, 1, sizeof(header), fin) != sizeof(header)) {
+        fclose(fin);
+        return 0;
+    }
+    
+    fclose(fin);
+    
+    // 시그니처 검증
+    if (memcmp(header.signature, ENC_SIGNATURE, 4) != 0) {
+        return 0;
+    }
+    
+    // 키 길이 코드에서 실제 키 길이 반환
+    if (header.key_length_code == 0x01) return 128;
+    else if (header.key_length_code == 0x02) return 192;
+    else if (header.key_length_code == 0x03) return 256;
+    else return 0;
+}
+
+// 파일 복호화 (스트리밍 방식)
+// 실제 저장된 파일 경로를 final_output_path에 저장
+int decrypt_file(const char* input_path, const char* output_path,
+                 const char* password, char* final_output_path, size_t final_path_size) {
+    FILE* fin = platform_fopen(input_path, "rb");
+    if (!fin) {
+        printf("오류: 파일을 열 수 없습니다: %s\n", input_path);
+        return 0;
+    }
+    
+    // 헤더 읽기
+    EncFileHeader header;
+    if (fread(&header, 1, sizeof(header), fin) != sizeof(header)) {
+        fclose(fin);
+        printf("오류: 파일 헤더를 읽을 수 없습니다.\n");
+        return 0;
+    }
+    
+    // 시그니처 검증
+    if (memcmp(header.signature, ENC_SIGNATURE, 4) != 0) {
+        fclose(fin);
+        printf("오류: 잘못된 파일 형식입니다.\n");
+        return 0;
+    }
+    
+    // 파일 크기 확인
+    fseek(fin, 0, SEEK_END);
+    long file_size = ftell(fin);
+    fseek(fin, sizeof(header), SEEK_SET);
+    
+    long ciphertext_size = file_size - sizeof(header) - 64; // 헤더와 HMAC 제외
+    
+    if (ciphertext_size <= 0) {
+        fclose(fin);
+        printf("오류: 잘못된 파일 크기입니다.\n");
+        return 0;
+    }
+    
+    // HMAC 위치로 이동하여 읽기
+    fseek(fin, file_size - 64, SEEK_SET);
+    uint8_t stored_hmac[64];
+    if (fread(stored_hmac, 1, 64, fin) != 64) {
+        fclose(fin);
+        printf("오류: HMAC를 읽을 수 없습니다.\n");
+        return 0;
+    }
+    
+    // AES 키 길이 결정
+    int aes_key_bits;
+    if (header.key_length_code == 0x01) aes_key_bits = 128;
+    else if (header.key_length_code == 0x02) aes_key_bits = 192;
+    else if (header.key_length_code == 0x03) aes_key_bits = 256;
+    else {
+        fclose(fin);
+        printf("오류: 지원하지 않는 AES 키 길이입니다.\n");
+        return 0;
+    }
+    
+    // 키 도출
+    uint8_t aes_key[32];
+    uint8_t hmac_key[24];
+    derive_keys(password, aes_key_bits, aes_key, hmac_key);
+    
+    printf("HMAC 검증 중...\n");
+    
+    // HMAC 검증을 위한 초기화
+    HMAC_SHA512_CTX hmac_ctx;
+    hmac_sha512_init(&hmac_ctx, hmac_key, 24);
+    hmac_sha512_update(&hmac_ctx, header.nonce, 8);
+    
+    // 암호문 위치로 다시 이동
+    fseek(fin, sizeof(header), SEEK_SET);
+    
+    // HMAC 검증을 위해 암호문을 읽으면서 HMAC 계산
+    uint8_t buffer[FILE_CHUNK_SIZE];
+    size_t bytes_read;
+    long total_read = 0;
+    
+    while (total_read < ciphertext_size) {
+        size_t to_read = (ciphertext_size - total_read < FILE_CHUNK_SIZE) ? 
+                         (ciphertext_size - total_read) : FILE_CHUNK_SIZE;
+        bytes_read = fread(buffer, 1, to_read, fin);
+        if (bytes_read == 0) break;
+        
+        // HMAC 업데이트
+        hmac_sha512_update(&hmac_ctx, buffer, bytes_read);
+        total_read += bytes_read;
+        
+        // 진행률 업데이트
+        print_progress(total_read, ciphertext_size, "HMAC 검증");
+    }
+    
+    // HMAC 최종 계산 및 검증
+    uint8_t computed_hmac[64];
+    hmac_sha512_final(&hmac_ctx, computed_hmac);
+    
+    // HMAC 검증 완료 표시
+    print_progress(ciphertext_size, ciphertext_size, "HMAC 검증");
+    printf("\n");
+    
+    if (memcmp(stored_hmac, computed_hmac, 64) != 0) {
+        fclose(fin);
+        printf("오류: HMAC 무결성 검증 실패. 파일이 손상되었거나 패스워드가 잘못되었습니다.\n");
+        return 0;
+    }
+    
+    printf("HMAC 검증 성공! 복호화 중...\n");
+    
+    // AES 컨텍스트 설정
+    AES_CTX aes_ctx;
+    if (AES_set_key(&aes_ctx, aes_key, aes_key_bits) != CRYPTO_SUCCESS) {
+        fclose(fin);
+        return 0;
+    }
+    
+    // CTR 모드용 nonce_counter
+    uint8_t nonce_counter[16];
+    memcpy(nonce_counter, header.nonce, 8);
+    memset(nonce_counter + 8, 0, 8);
+    
+    // 헤더에서 원본 확장자 읽기
+    char format_ext[16] = {0};
+    strncpy(format_ext, (const char*)header.format, 8);
+    format_ext[8] = '\0';
+    size_t ext_len = strlen(format_ext);
+    
+    // 출력 파일 경로에 확장자 추가
+    char actual_output_path[512];
+    strncpy(actual_output_path, output_path, sizeof(actual_output_path) - 1);
+    actual_output_path[sizeof(actual_output_path) - 1] = '\0';
+    
+    if (ext_len > 0) {
+        // 출력 경로에 확장자가 없으면 추가
+        char* last_dot = strrchr(actual_output_path, '.');
+        char* last_slash = strrchr(actual_output_path, '/');
+#ifdef _WIN32
+        char* last_backslash = strrchr(actual_output_path, '\\');
+        if (last_backslash && (!last_slash || last_backslash > last_slash)) {
+            last_slash = last_backslash;
+        }
+#endif
+        if (!last_dot || (last_slash && last_dot < last_slash)) {
+            // 확장자가 없으면 추가
+            size_t path_len = strlen(actual_output_path);
+            if (path_len + ext_len < sizeof(actual_output_path)) {
+                strncpy(actual_output_path + path_len, format_ext, ext_len);
+                actual_output_path[path_len + ext_len] = '\0';
+            }
+        }
+    }
+    
+    // 실제 저장된 파일 경로를 반환
+    if (final_output_path && final_path_size > 0) {
+        strncpy(final_output_path, actual_output_path, final_path_size - 1);
+        final_output_path[final_path_size - 1] = '\0';
+    }
+    
+    // 출력 파일 작성
+    FILE* fout = platform_fopen(actual_output_path, "wb");
+    if (!fout) {
+        fclose(fin);
+        return 0;
+    }
+    
+    // 복호화를 위해 다시 암호문 위치로 이동
+    fseek(fin, sizeof(header), SEEK_SET);
+    
+    // 청크 단위로 읽기, 복호화, 쓰기
+    total_read = 0;
+    int success = 1;
+    
+    while (total_read < ciphertext_size) {
+        size_t to_read = (ciphertext_size - total_read < FILE_CHUNK_SIZE) ? 
+                         (ciphertext_size - total_read) : FILE_CHUNK_SIZE;
+        bytes_read = fread(buffer, 1, to_read, fin);
+        if (bytes_read == 0) break;
+        
+        // 청크 복호화 (in-place)
+        if (AES_CTR_crypt(&aes_ctx, buffer, bytes_read, buffer, nonce_counter) != CRYPTO_SUCCESS) {
+            success = 0;
+            break;
+        }
+        
+        // 평문 쓰기
+        if (fwrite(buffer, 1, bytes_read, fout) != bytes_read) {
+            success = 0;
+            break;
+        }
+        
+        total_read += bytes_read;
+        
+        // 진행률 업데이트
+        print_progress(total_read, ciphertext_size, "복호화");
+    }
+    
+    fclose(fin);
+    
+    if (!success) {
+        fclose(fout);
+        // 실패 시 출력 파일 삭제
+        remove(actual_output_path);
+        printf("\n복호화 실패!\n");
+        return 0;
+    }
+    
+    fclose(fout);
+    
+    // 진행률 완료 표시
+    print_progress(ciphertext_size, ciphertext_size, "복호화");
+    printf("\n복호화 완료!\n");
+    
+    return 1;
+}
+
+#ifndef BUILD_GUI
+int main(void) {
+    int service;
+    char file_path[512];
+    char password[32];
+    int aes_choice;
+    int aes_key_bits;
+    
+    printf("=======================================\n");
+    printf("       파일 암호화/복호화 프로그램      \n");
+    printf("=======================================\n\n");
+    
+    // 서비스 선택
+    printf("이용하실 서비스 번호를 입력하세요:\n");
+    printf("1. 파일 암호화\n");
+    printf("2. 파일 복호화\n");
+    printf("선택: ");
+    
+    if (scanf("%d", &service) != 1 || (service != 1 && service != 2)) {
+        printf("오류: 잘못된 입력입니다.\n");
+        return 1;
+    }
+    
+    if (service == 1) {
+        // 암호화
+        printf("\n암호화할 파일 경로를 입력하세요: ");
+        if (scanf("%511s", file_path) != 1) {
+            printf("오류: 파일 경로를 읽을 수 없습니다.\n");
+            return 1;
+        }
+        
+        printf("\n파일을 암호화할 AES를 입력하세요:\n");
+        printf("1. AES-128\n");
+        printf("2. AES-192\n");
+        printf("3. AES-256\n");
+        printf("선택: ");
+        
+        if (scanf("%d", &aes_choice) != 1 || aes_choice < 1 || aes_choice > 3) {
+            printf("오류: 잘못된 선택입니다.\n");
+            return 1;
+        }
+        
+        aes_key_bits = (aes_choice == 1) ? 128 : (aes_choice == 2) ? 192 : 256;
+        printf("\nAES-%d-CTR로 파일 암호화를 시작합니다.\n", aes_key_bits);
+        
+        printf("패스워드를 입력하세요 (영문+숫자 (대소문자) 최대 10자): ");
+        if (scanf("%31s", password) != 1) {
+            printf("오류: 패스워드를 읽을 수 없습니다.\n");
+            return 1;
+        }
+        
+        if (!validate_password(password)) {
+            printf("오류: 패스워드는 영문+숫자 (대소문자) 최대 10자여야 합니다.\n");
+            return 1;
+        }
+        
+        // 저장할 경로 입력
+        char save_path[512];
+        printf("암호화된 파일을 저장할 경로를 입력하세요: ");
+        if (scanf("%511s", save_path) != 1) {
+            printf("오류: 저장 경로를 읽을 수 없습니다.\n");
+            return 1;
+        }
+        
+        // 파일 이름 입력
+        char file_name[256];
+        printf("암호화된 파일 이름을 입력하세요 (확장자 .enc는 자동 추가): ");
+        if (scanf("%255s", file_name) != 1) {
+            printf("오류: 파일 이름을 읽을 수 없습니다.\n");
+            return 1;
+        }
+        
+        // 최종 출력 경로 생성 (경로 + 파일명 + .enc)
+        char output_path[512];
+        size_t path_len = strlen(save_path);
+        // 경로 끝에 구분자가 없으면 추가
+        if (path_len > 0 && save_path[path_len - 1] != '/' && save_path[path_len - 1] != '\\') {
+#ifdef _WIN32
+            snprintf(output_path, sizeof(output_path), "%s\\%s.enc", save_path, file_name);
+#else
+            snprintf(output_path, sizeof(output_path), "%s/%s.enc", save_path, file_name);
+#endif
+        } else {
+            snprintf(output_path, sizeof(output_path), "%s%s.enc", save_path, file_name);
+        }
+        
+        if (encrypt_file(file_path, output_path, aes_key_bits, password)) {
+            printf("파일 암호화와 hmac 생성에 성공하였습니다.\n");
+            printf("암호화된 파일: %s\n", output_path);
+        } else {
+            printf("오류: 파일 암호화에 실패했습니다.\n");
+            return 1;
+        }
+        
+    } else if (service == 2) {
+        // 복호화
+        printf("\n복호화할 파일 경로를 입력하세요: ");
+        if (scanf("%511s", file_path) != 1) {
+            printf("오류: 파일 경로를 읽을 수 없습니다.\n");
+            return 1;
+        }
+        
+        // 헤더에서 AES 키 길이 읽기
+        int aes_key_bits = read_aes_key_length(file_path);
+        if (aes_key_bits == 0) {
+            printf("오류: 암호화된 파일을 읽을 수 없거나 잘못된 형식입니다.\n");
+            return 1;
+        }
+        
+        printf("\nAES-%d-CTR로 파일 복호화를 시작합니다.\n", aes_key_bits);
+        printf("암호화 시 사용했던 패스워드를 입력하세요: ");
+        if (scanf("%31s", password) != 1) {
+            printf("오류: 패스워드를 읽을 수 없습니다.\n");
+            return 1;
+        }
+        
+        // 저장할 경로 입력
+        char save_path[512];
+        printf("복호화된 파일을 저장할 경로를 입력하세요 (저장할 파일명 제외): ");
+        if (scanf("%511s", save_path) != 1) {
+            printf("오류: 저장 경로를 읽을 수 없습니다.\n");
+            return 1;
+        }
+        
+        // 파일 이름 입력 (확장자는 자동으로 추가됨)
+        char file_name[256];
+        printf("복호화된 파일 이름을 입력하세요 (확장자는 자동 추가): ");
+        if (scanf("%255s", file_name) != 1) {
+            printf("오류: 파일 이름을 읽을 수 없습니다.\n");
+            return 1;
+        }
+        
+        // 최종 출력 경로 생성 (경로 + 파일명, 확장자는 decrypt_file에서 추가)
+        char output_path[512];
+        size_t path_len = strlen(save_path);
+        // 경로 끝에 구분자가 없으면 추가
+        if (path_len > 0 && save_path[path_len - 1] != '/' && save_path[path_len - 1] != '\\') {
+#ifdef _WIN32
+            snprintf(output_path, sizeof(output_path), "%s\\%s", save_path, file_name);
+#else
+            snprintf(output_path, sizeof(output_path), "%s/%s", save_path, file_name);
+#endif
+        } else {
+            snprintf(output_path, sizeof(output_path), "%s%s", save_path, file_name);
+        }
+        
+        char actual_output_path[512];
+        if (decrypt_file(file_path, output_path, password, actual_output_path, sizeof(actual_output_path))) {
+            printf("무결성이 검증되었습니다. 파일 복호화에 성공했습니다.\n");
+            printf("복호화된 파일: %s\n", actual_output_path);
+        } else {
+            printf("오류: 파일 복호화에 실패했습니다.\n");
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+#endif // BUILD_GUI
+
