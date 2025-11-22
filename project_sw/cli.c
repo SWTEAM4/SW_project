@@ -12,6 +12,12 @@
 #include "file_crypto.h"
 #include "platform_utils.h"
 
+// gettimeofday를 위해 sys/time.h 추가 (macOS/Linux)
+// platform_utils.h를 먼저 include해야 PLATFORM_MAC이 정의됨
+#if defined(PLATFORM_MAC) || defined(PLATFORM_LINUX)
+#include <sys/time.h>
+#endif
+
 
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
@@ -664,8 +670,43 @@ int main(void) {
             snprintf(output_path, sizeof(output_path), "%s%s.enc", save_path, file_name);
         }
         
+        // 시간 측정 시작
+#ifdef PLATFORM_WINDOWS
+        clock_t start = clock();
+#else
+        struct timeval start, end;
+        gettimeofday(&start, NULL);
+#endif
+        
         if (encrypt_file(file_path, output_path, aes_key_bits, password)) {
+            // 시간 측정 종료 및 계산
+#ifdef PLATFORM_WINDOWS
+            clock_t end = clock();
+            double elapsed = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0; // 밀리초
             printf("File encryption and HMAC generation succeeded.\n");
+            printf("Encryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
+#else
+            gettimeofday(&end, NULL);
+            double elapsed = (end.tv_sec - start.tv_sec) * 1000.0 + 
+                           (end.tv_usec - start.tv_usec) / 1000.0; // 밀리초
+            printf("File encryption and HMAC generation succeeded.\n");
+            printf("Encryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
+#endif
+            
+            // 파일 크기 확인 및 속도 계산
+            FILE* f = fopen(file_path, "rb");
+            if (f) {
+                fseek(f, 0, SEEK_END);
+                long file_size = ftell(f);
+                fclose(f);
+                
+                if (elapsed > 0 && file_size > 0) {
+                    double speed = (file_size / (1024.0 * 1024.0)) / (elapsed / 1000.0); // MB/s
+                    printf("File size: %.2f MB\n", file_size / (1024.0 * 1024.0));
+                    printf("Encryption speed: %.2f MB/s\n", speed);
+                }
+            }
+            
             printf("Encrypted file: %s\n", output_path);
         } else {
             printf("Error: File encryption failed.\n");
@@ -724,9 +765,44 @@ int main(void) {
             snprintf(output_path, sizeof(output_path), "%s%s", save_path, file_name);
         }
         
+        // 시간 측정 시작
+#ifdef PLATFORM_WINDOWS
+        clock_t start = clock();
+#else
+        struct timeval start, end;
+        gettimeofday(&start, NULL);
+#endif
+        
         char actual_output_path[512];
         if (decrypt_file(file_path, output_path, password, actual_output_path, sizeof(actual_output_path))) {
+            // 시간 측정 종료 및 계산
+#ifdef PLATFORM_WINDOWS
+            clock_t end = clock();
+            double elapsed = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0; // 밀리초
             printf("Integrity verified. File decryption succeeded.\n");
+            printf("Decryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
+#else
+            gettimeofday(&end, NULL);
+            double elapsed = (end.tv_sec - start.tv_sec) * 1000.0 + 
+                           (end.tv_usec - start.tv_usec) / 1000.0; // 밀리초
+            printf("Integrity verified. File decryption succeeded.\n");
+            printf("Decryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
+#endif
+            
+            // 파일 크기 확인 및 속도 계산
+            FILE* f = fopen(file_path, "rb");
+            if (f) {
+                fseek(f, 0, SEEK_END);
+                long file_size = ftell(f);
+                fclose(f);
+                
+                if (elapsed > 0 && file_size > 0) {
+                    double speed = (file_size / (1024.0 * 1024.0)) / (elapsed / 1000.0); // MB/s
+                    printf("File size: %.2f MB\n", file_size / (1024.0 * 1024.0));
+                    printf("Decryption speed: %.2f MB/s\n", speed);
+                }
+            }
+            
             printf("Decrypted file: %s\n", actual_output_path);
         } else {
             printf("Error: File decryption failed.\n");
