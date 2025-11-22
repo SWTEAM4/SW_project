@@ -248,7 +248,7 @@ double now_sec(void) {
 int test_sha512(void) {
     FILE* fp = fopen("SHA512ShortMsg.rsp", "r");
     if (!fp) {
-        perror("파일 열기 실패");
+        perror("Failed to open file");
         return 1;
     }
 
@@ -293,8 +293,8 @@ int test_sha512(void) {
                 pass_count++;
             }
             else {
-                printf("Test %d 실패\n", test_count);
-                printf("Len=%d\nMsg=%s\n예상=%s\n결과=%s\n\n",
+                printf("Test %d failed\n", test_count);
+                printf("Len=%d\nMsg=%s\nExpected=%s\nResult=%s\n\n",
                     len, msg_hex, md_ref, digest_hex);
             }
         }
@@ -304,11 +304,11 @@ int test_sha512(void) {
     double elapsed = end - start;
 
     fclose(fp);
-    printf("테스트 완료: %d 중 %d 통과 \n", test_count, pass_count);
-    printf("총 실행 시간: %.6f초 (%.3f ms)\n", elapsed, elapsed * 1000.0);
+    printf("Test completed: %d out of %d passed \n", pass_count, test_count);
+    printf("Total execution time: %.6f seconds (%.3f ms)\n", elapsed, elapsed * 1000.0);
 
     if (test_count == pass_count)
-        printf("모든 SHA-512 테스트 벡터 통과!\n");
+        printf("All SHA-512 test vectors passed!\n");
 
     return 0;
 }

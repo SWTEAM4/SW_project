@@ -105,7 +105,7 @@ void EncryptionProgressCallback(long processed, long total, void* user_data) {
         
         // 텍스트 업데이트
         wchar_t progress_text[256];
-        swprintf(progress_text, 256, L"\uC9C4\uD589\uC911: %d / %d \uD30C\uC77C (%d%%)", 
+        swprintf(progress_text, 256, L"Progress: %d / %d files (%d%%)", 
                  g_currentFileIndex + 1, g_totalFiles, file_percent);
         if (g_hProgressText) {
             SetWindowText(g_hProgressText, progress_text);
@@ -138,14 +138,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     
     if (!RegisterClass(&wc)) {
-        MessageBox(NULL, L"\uC708\uB3C4\uC6B0 \uD074\uB798\uC2A4 \uB4F1\uB85D \uC2E4\uD328", L"\uC624\uB958", MB_OK | MB_ICONERROR);
+        MessageBox(NULL, L"Window class registration failed", L"Error", MB_OK | MB_ICONERROR);
         return 0;
     }
     
     g_hMainWnd = CreateWindowEx(
         0,
         CLASS_NAME,
-        L"\uD30C\uC77C \uC554\uD638\uD654/\uBCF5\uD638\uD654 \uD504\uB85C\uADF8\uB7A8",
+        L"File Encryption/Decryption Program",
         WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT,
         600, 500,
@@ -217,7 +217,7 @@ LRESULT CALLBACK DropAreaProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
             // Draw text
             SetTextColor(hdc, RGB(100, 100, 100));
             SetBkMode(hdc, TRANSPARENT);
-            DrawText(hdc, L"\uD30C\uC77C\uC744 \uC5EC\uAE30\uC5D0 \uB4DC\uB798\uADF8 \uC564 \uB4DC\uB86D\uD558\uC138\uC694", -1, &rect, 
+            DrawText(hdc, L"Drag and drop files here", -1, &rect, 
                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             
             EndPaint(hwnd, &ps);
@@ -260,7 +260,7 @@ void CreateControls(HWND hwnd) {
     DragAcceptFiles(g_hDropArea, TRUE);
     
     // File list label with decrypt notice
-    CreateWindow(L"STATIC", L"\uC120\uD0DD\uB41C \uD30C\uC77C (\uBCF5\uD638\uD654\uC2DC .enc \uD615\uC2DD \uD544\uC694):", WS_CHILD | WS_VISIBLE,
+    CreateWindow(L"STATIC", L"Selected Files (requires .enc format for decryption):", WS_CHILD | WS_VISIBLE,
                  10, 140, 300, 20, hwnd, NULL, NULL, NULL);
     
     g_hFileList = CreateWindow(
@@ -271,7 +271,7 @@ void CreateControls(HWND hwnd) {
     );
     
     // Password input
-    CreateWindow(L"STATIC", L"\uD328\uC2A4\uC6CC\uB4DC (\uC601\uBB38+\uC22B\uC790, \uCD5C\uB300 10\uC790):", WS_CHILD | WS_VISIBLE,
+    CreateWindow(L"STATIC", L"Password (alphanumeric, max 10 characters):", WS_CHILD | WS_VISIBLE,
                  10, 275, 250, 20, hwnd, NULL, NULL, NULL);
     
     g_hPasswordEdit = CreateWindow(
@@ -282,7 +282,7 @@ void CreateControls(HWND hwnd) {
     );
     
     // AES selection
-    CreateWindow(L"STATIC", L"AES \uD0A4 \uAE38\uC774 (\uC554\uD638\uD654\uC6A9):", WS_CHILD | WS_VISIBLE,
+    CreateWindow(L"STATIC", L"AES Key Length (for encryption):", WS_CHILD | WS_VISIBLE,
                  280, 275, 200, 20, hwnd, NULL, NULL, NULL);
     
     g_hAESCombo = CreateWindow(
@@ -300,7 +300,7 @@ void CreateControls(HWND hwnd) {
     
     // Encrypt button
     CreateWindow(
-        L"BUTTON", L"\uC554\uD638\uD654",
+        L"BUTTON", L"Encrypt",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         450, 300, 120, 30,
         hwnd, (HMENU)IDC_ENCRYPT_BUTTON, NULL, NULL
@@ -308,7 +308,7 @@ void CreateControls(HWND hwnd) {
     
     // Decrypt button
     CreateWindow(
-        L"BUTTON", L"\uBCF5\uD638\uD654",
+        L"BUTTON", L"Decrypt",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         450, 335, 120, 30,
         hwnd, (HMENU)IDC_DECRYPT_BUTTON, NULL, NULL
@@ -316,7 +316,7 @@ void CreateControls(HWND hwnd) {
 
     // File selection button
     g_hFileSelectButton = CreateWindow(
-        L"BUTTON", L"\uD30C\uC77C \uC120\uD0DD",
+        L"BUTTON", L"Select Files",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         450, 270, 120, 25,
         hwnd, (HMENU)IDC_FILE_SELECT_BUTTON, NULL, NULL
@@ -324,7 +324,7 @@ void CreateControls(HWND hwnd) {
     
     // File delete button (top right of file list)
     g_hFileDeleteButton = CreateWindow(
-        L"BUTTON", L"\uD30C\uC77C \uC0AD\uC81C",
+        L"BUTTON", L"Delete File",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         450, 140, 120, 25,
         hwnd, (HMENU)IDC_FILE_DELETE_BUTTON, NULL, NULL
@@ -334,7 +334,7 @@ void CreateControls(HWND hwnd) {
     wchar_t exe_path[MAX_PATH];
     GetModuleFileNameW(NULL, exe_path, MAX_PATH);
     wchar_t initial_status[512];
-    swprintf(initial_status, 512, L"\uD30C\uC77C\uC744 \uB4DC\uB798\uADF8 \uC564 \uB4DC\uB86D\uD558\uC5EC \uC2DC\uC791\uD558\uC138\uC694.\n\n\uC2E4\uD589 \uACBD\uB85C: %s", exe_path);
+    swprintf(initial_status, 512, L"Drag and drop files here to start.\n\nExecutable path: %s", exe_path);
     
     g_hStatusText = CreateWindow(
         L"STATIC", initial_status,
@@ -350,7 +350,7 @@ void UpdateStatus(const wchar_t* message) {
         wchar_t exe_path[MAX_PATH];
         GetModuleFileNameW(NULL, exe_path, MAX_PATH);
         wchar_t full_message[512];
-        swprintf(full_message, 512, L"%s\n\n\uC2E4\uD589 \uACBD\uB85C: %s", message, exe_path);
+        swprintf(full_message, 512, L"%s\n\nExecutable path: %s", message, exe_path);
         SetWindowText(g_hStatusText, full_message);
     }
 }
@@ -362,8 +362,8 @@ void ProcessDroppedFiles(HDROP hDrop) {
     UINT fileCount = DragQueryFile(hDrop, 0xFFFFFFFF, NULL, 0);
     
     if (fileCount > 10) {
-        MessageBox(g_hMainWnd, L"\uD30C\uC77C\uC740 \uCD5C\uB300 10\uAC1C\uB9CC \uC120\uD0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.", L"\uC624\uB958", MB_OK | MB_ICONWARNING);
-        UpdateStatus(L"\uC624\uB958: \uD30C\uC77C\uC740 \uCD5C\uB300 10\uAC1C\uB9CC \uC120\uD0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+        MessageBox(g_hMainWnd, L"Maximum 10 files can be selected.", L"Error", MB_OK | MB_ICONWARNING);
+        UpdateStatus(L"Error: Maximum 10 files can be selected.");
         return;
     }
     
@@ -510,7 +510,7 @@ void SelectFilesWithDialog(void) {
     ZeroMemory(&ofn, sizeof(ofn));
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = g_hMainWnd;
-    ofn.lpstrFilter = L"\uBAA8\uB4E0 \uD30C\uC77C (*.*)\0*.*\0";
+    ofn.lpstrFilter = L"All Files (*.*)\0*.*\0";
     ofn.lpstrFile = file_buffer;
     ofn.nMaxFile = (DWORD)(sizeof(file_buffer) / sizeof(wchar_t));
     ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ALLOWMULTISELECT;
@@ -542,8 +542,8 @@ void SelectFilesWithDialog(void) {
         }
         
         if (*current && g_fileCount >= 10) {
-            MessageBox(g_hMainWnd, L"\uD30C\uC77C\uC740 \uCD5C\uB300 10\uAC1C\uB9CC \uC120\uD0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uCD5C\uB300 10\uAC1C\uB9CC \uC120\uD0DD\uB418\uC5C8\uC2B5\uB2C8\uB2E4.", L"\uC624\uB958", MB_OK | MB_ICONWARNING);
-            UpdateStatus(L"\uC624\uB958: \uD30C\uC77C\uC740 \uCD5C\uB300 10\uAC1C\uB9CC \uC120\uD0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+            MessageBox(g_hMainWnd, L"Maximum 10 files can be selected. Only 10 files were selected.", L"Error", MB_OK | MB_ICONWARNING);
+            UpdateStatus(L"Error: Maximum 10 files can be selected.");
         }
     }
 
@@ -560,7 +560,7 @@ void DeleteSelectedFile(void) {
     
     int sel = (int)SendMessage(g_hFileList, LB_GETCURSEL, 0, 0);
     if (sel == LB_ERR || sel < 0 || sel >= g_fileCount) {
-        MessageBox(g_hMainWnd, L"\uC120\uD0DD\uD55C \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", L"\uC624\uB958", MB_OK | MB_ICONWARNING);
+        MessageBox(g_hMainWnd, L"No file selected.", L"Error", MB_OK | MB_ICONWARNING);
         return;
     }
     
@@ -633,7 +633,7 @@ void CreateProgressWindow(void) {
     g_hProgressWnd = CreateWindowEx(
         WS_EX_DLGMODALFRAME,
         PROGRESS_CLASS_NAME,
-        L"\uC554\uD638\uD654 \uC9C4\uD589 \uC911...",
+        L"Encryption in progress...",
         WS_POPUP | WS_CAPTION | WS_SYSMENU,
         x, y,
         windowWidth, windowHeight,
@@ -645,7 +645,7 @@ void CreateProgressWindow(void) {
     }
     
     // Progress text label
-    CreateWindow(L"STATIC", L"\uC554\uD638\uD654 \uC9C4\uD589 \uC911...",
+    CreateWindow(L"STATIC", L"Encryption in progress...",
                  WS_CHILD | WS_VISIBLE,
                  20, 20, 460, 25,
                  g_hProgressWnd, (HMENU)IDC_PROGRESS_TEXT, NULL, NULL);
@@ -704,7 +704,7 @@ void UpdateProgressWindow(int current_file, int total_files, const char* filenam
     
     // Update progress text
     wchar_t progress_text[256];
-    swprintf(progress_text, 256, L"\uC9C4\uD589\uC911: %d / %d \uD30C\uC77C", current_file, total_files);
+    swprintf(progress_text, 256, L"Progress: %d / %d files", current_file, total_files);
     if (g_hProgressText) {
         SetWindowText(g_hProgressText, progress_text);
     }
@@ -735,7 +735,7 @@ void UpdateProgressWindow(int current_file, int total_files, const char* filenam
 // Encrypt selected files
 void EncryptFiles(void) {
     if (g_fileCount == 0) {
-        UpdateStatus(L"\uC624\uB958: \uD30C\uC77C\uC744 \uBA3C\uC800 \uB4DC\uB798\uADF8 \uC564 \uB4DC\uB86D\uD558\uC138\uC694.");
+        UpdateStatus(L"Error: Please drag and drop files first.");
         return;
     }
     
@@ -744,7 +744,7 @@ void EncryptFiles(void) {
     GetWindowText(g_hPasswordEdit, wpassword, 32);
     
     if (wcslen(wpassword) == 0) {
-        UpdateStatus(L"\uC624\uB958: \uD328\uC2A4\uC6CC\uB4DC\uB97C \uC785\uB825\uD558\uC138\uC694.");
+        UpdateStatus(L"Error: Please enter password.");
         return;
     }
     
@@ -753,7 +753,7 @@ void EncryptFiles(void) {
     WideCharToMultiByte(CP_ACP, 0, wpassword, -1, password, sizeof(password), NULL, NULL);
     
     if (!validate_password(password)) {
-        UpdateStatus(L"\uC624\uB958: \uD328\uC2A4\uC6CC\uB4DC\uB294 \uC601\uBB38+\uC22B\uC790 (\uB300\uC18C\uBB38\uC790) \uCD5C\uB300 10\uC790\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+        UpdateStatus(L"Error: Password must be alphanumeric (case-sensitive) with maximum 10 characters.");
         return;
     }
     
@@ -788,7 +788,7 @@ void EncryptFiles(void) {
         ZeroMemory(&ofn, sizeof(ofn));
         ofn.lStructSize = sizeof(ofn);
         ofn.hwndOwner = g_hProgressWnd ? g_hProgressWnd : g_hMainWnd;
-        ofn.lpstrFilter = L"\uC554\uD638\uD654 \uD30C\uC77C (*.enc)\0*.enc\0\uBAA8\uB4E0 \uD30C\uC77C (*.*)\0*.*\0";
+        ofn.lpstrFilter = L"Encrypted Files (*.enc)\0*.enc\0All Files (*.*)\0*.*\0";
         ofn.lpstrFile = woutput_path;
         ofn.nMaxFile = MAX_PATH;
         ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
@@ -833,7 +833,7 @@ void EncryptFiles(void) {
     DestroyProgressWindow();
     
     wchar_t status[256];
-    swprintf(status, 256, L"\uC554\uD638\uD654 \uC644\uB8CC: \uC131\uACF5 %d\uAC1C, \uC2E4\uD328 %d\uAC1C", success_count, fail_count);
+    swprintf(status, 256, L"Encryption completed: %d succeeded, %d failed", success_count, fail_count);
     UpdateStatus(status);
     
     // Clear password field after encryption
@@ -848,7 +848,7 @@ void EncryptFiles(void) {
 // Decrypt selected files
 void DecryptFiles(void) {
     if (g_fileCount == 0) {
-        UpdateStatus(L"\uC624\uB958: \uD30C\uC77C\uC744 \uBA3C\uC800 \uB4DC\uB798\uADF8 \uC564 \uB4DC\uB86D\uD558\uC138\uC694.");
+        UpdateStatus(L"Error: Please drag and drop files first.");
         return;
     }
     
@@ -857,7 +857,7 @@ void DecryptFiles(void) {
     GetWindowText(g_hPasswordEdit, wpassword, 32);
     
     if (wcslen(wpassword) == 0) {
-        UpdateStatus(L"\uC624\uB958: \uD328\uC2A4\uC6CC\uB4DC\uB97C \uC785\uB825\uD558\uC138\uC694.");
+        UpdateStatus(L"Error: Please enter password.");
         return;
     }
     
@@ -874,7 +874,7 @@ void DecryptFiles(void) {
         // Ensure the file has the .enc extension
         if (strlen(g_droppedFiles[i]) < 4 || 
             strcmp(g_droppedFiles[i] + strlen(g_droppedFiles[i]) - 4, ".enc") != 0) {
-            MessageBox(g_hMainWnd, L"\uBCF5\uD638\uD654 \uC2DC \uD544\uC694\uD55C \uD30C\uC77C\uC740 .enc\uC785\uB2C8\uB2E4.", L"\uC624\uB958", MB_OK | MB_ICONERROR);
+            MessageBox(g_hMainWnd, L"Files for decryption must be in .enc format.", L"Error", MB_OK | MB_ICONERROR);
             fail_count++;
             invalid_file_count++;
             continue;
@@ -884,7 +884,7 @@ void DecryptFiles(void) {
         int aes_key_bits = read_aes_key_length(g_droppedFiles[i]);
         if (aes_key_bits > 0) {
             wchar_t info_msg[256];
-            swprintf(info_msg, 256, L"\uD30C\uC77C header\uC5D0\uC11C AES-%d\uB85C \uC554\uD638\uD654\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uC790\uB3D9\uC73C\uB85C \uC120\uD0DD\uB429\uB2C8\uB2E4.", aes_key_bits);
+            swprintf(info_msg, 256, L"File header shows AES-%d encryption. Automatically selected.", aes_key_bits);
             UpdateStatus(info_msg);
         }
         
@@ -894,7 +894,7 @@ void DecryptFiles(void) {
         ZeroMemory(&ofn, sizeof(ofn));
         ofn.lStructSize = sizeof(ofn);
         ofn.hwndOwner = g_hMainWnd;
-        ofn.lpstrFilter = L"\uBAA8\uB4E0 \uD30C\uC77C (*.*)\0*.*\0";
+        ofn.lpstrFilter = L"All Files (*.*)\0*.*\0";
         ofn.lpstrFile = woutput_path;
         ofn.nMaxFile = MAX_PATH;
         ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
@@ -929,7 +929,7 @@ void DecryptFiles(void) {
             fail_count++;
             password_fail_count++;
             // Show error message for password failure
-            MessageBox(g_hMainWnd, L"\uD328\uC2A4\uC6CC\uB4DC\uAC00 \uD2C0\uB838\uC2B5\uB2C8\uB2E4.", L"\uBCF5\uD638\uD654 \uC2E4\uD328", MB_OK | MB_ICONERROR);
+            MessageBox(g_hMainWnd, L"Password is incorrect.", L"Decryption Failed", MB_OK | MB_ICONERROR);
         }
     }
     
@@ -937,12 +937,12 @@ void DecryptFiles(void) {
     if (fail_count > 0) {
         // Only show password check message if password failures occurred (not invalid file extensions)
         if (password_fail_count > 0) {
-            swprintf(status, 256, L"\uBCF5\uD638\uD654 \uC644\uB8CC: \uC131\uACF5 %d\uAC1C, \uC2E4\uD328 %d\uAC1C (\uD328\uC2A4\uC6CC\uB4DC \uD655\uC778 \uD544\uC694)", success_count, fail_count);
+            swprintf(status, 256, L"Decryption completed: %d succeeded, %d failed (password verification required)", success_count, fail_count);
         } else {
-            swprintf(status, 256, L"\uBCF5\uD638\uD654 \uC644\uB8CC: \uC131\uACF5 %d\uAC1C, \uC2E4\uD328 %d\uAC1C", success_count, fail_count);
+            swprintf(status, 256, L"Decryption completed: %d succeeded, %d failed", success_count, fail_count);
         }
     } else {
-        swprintf(status, 256, L"\uBB34\uACB0\uC131\uC774 \uAC80\uC99D\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uBCF5\uD638\uD654 \uC644\uB8CC: %d\uAC1C", success_count);
+        swprintf(status, 256, L"Integrity verified. Decryption completed: %d file(s)", success_count);
     }
     UpdateStatus(status);
     
