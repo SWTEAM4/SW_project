@@ -7,6 +7,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "file_crypto.h"
 #include "platform_utils.h"
 
@@ -311,7 +312,7 @@ void EncryptFiles(void) {
         
         // Show save dialog
         NSSavePanel* savePanel = [NSSavePanel savePanel];
-        [savePanel setAllowedFileTypes:@[@"enc"]];
+        [savePanel setAllowedContentTypes:@[[UTType typeWithFilenameExtension:@"enc"]]];
         [savePanel setCanCreateDirectories:YES];
         [savePanel setNameFieldStringValue:[fileName stringByDeletingPathExtension]];
         

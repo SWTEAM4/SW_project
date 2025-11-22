@@ -59,10 +59,12 @@ void derive_keys(const char* password, int aes_key_bits,
 // 랜덤 nonce 생성 (OpenSSL RAND_bytes 사용)
 int generate_nonce(uint8_t* nonce, size_t len) {
     if (crypto_random_bytes(nonce, len) == CRYPTO_SUCCESS) {
+        printf("[DEBUG] OpenSSL RAND_bytes로 난수 생성 성공\n");
         return 1;
     }
     // OpenSSL이 없는 경우 fallback (보안상 권장하지 않음)
     // srand는 main 함수에서 이미 호출됨
+    printf("[DEBUG] OpenSSL RAND_bytes 실패, fallback rand() 사용\n");
     for (size_t i = 0; i < len; i++) {
         nonce[i] = (uint8_t)(rand() & 0xFF);
     }
@@ -566,6 +568,13 @@ int decrypt_file_with_progress(const char* input_path, const char* output_path,
 
 #ifndef BUILD_GUI
 int main(void) {
+    // OpenSSL 활성화 여부 확인
+#ifdef USE_OPENSSL
+    printf("OpenSSL 활성화됨\n");
+#else
+    printf("OpenSSL 비활성화됨\n");
+#endif
+    
     // 시드 초기화 (프로그램 시작 시 한 번만)
     srand((unsigned int)time(NULL));
     
