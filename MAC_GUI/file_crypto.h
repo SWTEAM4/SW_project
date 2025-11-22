@@ -23,9 +23,9 @@ typedef struct {
     uint8_t version;           // [4:5] 0x01
     uint8_t key_length_code;   // [5:6] 0x01=128, 0x02=192, 0x03=256
     uint8_t mode_code;         // [6:7] 0x02=CTR
-    uint8_t hmac_enabled;      // [7:8] 0x01=사용
+    uint8_t hmac_enabled;      // [7:8] 0x01=enabled
     uint8_t nonce[8];          // [8:16] Nonce
-    uint8_t format[8];         // [16:24] 원본 파일 확장자/시그니처 (예: ".hwp", ".png", ".jpeg", ".txt")
+    uint8_t format[8];         // [16:24] Original file extension/signature (e.g., ".hwp", ".png", ".jpeg", ".txt")
     uint8_t reserved[16];      // [24:40] Reserved
 } EncFileHeader;
 

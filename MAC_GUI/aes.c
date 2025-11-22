@@ -528,17 +528,17 @@ CRYPTO_STATUS crypto_random_bytes(uint8_t* buf, size_t len) {
     // OpenSSL RAND_bytes 함수 호출
     // 반환값: 1 = 성공, 0 = 실패
     if (RAND_bytes(buf, (int)len) == 1) {
-        printf("[DEBUG] OpenSSL RAND_bytes 사용됨 (%zu bytes)\n", len);
+        printf("[DEBUG] OpenSSL RAND_bytes used (%zu bytes)\n", len);
         return CRYPTO_SUCCESS;
     } else {
-        printf("[DEBUG] OpenSSL RAND_bytes 실패\n");
+        printf("[DEBUG] OpenSSL RAND_bytes failed\n");
         return CRYPTO_ERR_INTERNAL_FAILURE;
     }
 #else
     // OpenSSL이 활성화되지 않은 경우 오류 반환
     (void)buf;  // unused parameter warning 방지
     (void)len;
-    printf("[DEBUG] OpenSSL이 비활성화되어 있음\n");
+    printf("[DEBUG] OpenSSL is disabled\n");
     return CRYPTO_ERR_INTERNAL_FAILURE;
 #endif
 }

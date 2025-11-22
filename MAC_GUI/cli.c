@@ -59,12 +59,12 @@ void derive_keys(const char* password, int aes_key_bits,
 // 랜덤 nonce 생성 (OpenSSL RAND_bytes 사용)
 int generate_nonce(uint8_t* nonce, size_t len) {
     if (crypto_random_bytes(nonce, len) == CRYPTO_SUCCESS) {
-        printf("[DEBUG] OpenSSL RAND_bytes로 난수 생성 성공\n");
+        printf("[DEBUG] OpenSSL RAND_bytes random number generation succeeded\n");
         return 1;
     }
     // OpenSSL이 없는 경우 fallback (보안상 권장하지 않음)
     // srand는 main 함수에서 이미 호출됨
-    printf("[DEBUG] OpenSSL RAND_bytes 실패, fallback rand() 사용\n");
+    printf("[DEBUG] OpenSSL RAND_bytes failed, using fallback rand()\n");
     for (size_t i = 0; i < len; i++) {
         nonce[i] = (uint8_t)(rand() & 0xFF);
     }
@@ -132,7 +132,7 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
                                  progress_callback_t progress_cb, void* user_data) {
     FILE* fin = platform_fopen(input_path, "rb");
     if (!fin) {
-        if (!progress_cb) printf("오류: 파일을 열 수 없습니다: %s\n", input_path);
+        if (!progress_cb) printf("Error: Cannot open file: %s\n", input_path);
         return 0;
     }
     
@@ -146,7 +146,7 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
         return 0;
     }
     
-    if (!progress_cb) printf("암호화 중...\n");
+    if (!progress_cb) printf("Encrypting...\n");
     
     // 키 도출
     uint8_t aes_key[32];
@@ -252,7 +252,7 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
         if (progress_cb) {
             progress_cb(total_processed, file_size, user_data);
         } else {
-            print_progress(total_processed, file_size, "암호화");
+            print_progress(total_processed, file_size, "Encrypting");
         }
     }
     
@@ -269,8 +269,8 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
     if (progress_cb) {
         progress_cb(file_size, file_size, user_data);
     } else {
-        print_progress(file_size, file_size, "암호화");
-        printf("\n암호화 완료!\n");
+        print_progress(file_size, file_size, "Encrypting");
+        printf("\nEncryption completed!\n");
     }
     
     return 1;
@@ -322,7 +322,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
                                   progress_callback_t progress_cb, void* user_data) {
     FILE* fin = platform_fopen(input_path, "rb");
     if (!fin) {
-        if (!progress_cb) printf("오류: 파일을 열 수 없습니다: %s\n", input_path);
+        if (!progress_cb) printf("Error: Cannot open file: %s\n", input_path);
         return 0;
     }
     
@@ -330,14 +330,14 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     EncFileHeader header;
     if (fread(&header, 1, sizeof(header), fin) != sizeof(header)) {
         fclose(fin);
-        if (!progress_cb) printf("오류: 파일 헤더를 읽을 수 없습니다.\n");
+        if (!progress_cb) printf("Error: Cannot read file header.\n");
         return 0;
     }
     
     // 시그니처 검증
     if (memcmp(header.signature, ENC_SIGNATURE, 4) != 0) {
         fclose(fin);
-        if (!progress_cb) printf("오류: 잘못된 파일 형식입니다.\n");
+        if (!progress_cb) printf("Error: Invalid file format.\n");
         return 0;
     }
     
@@ -351,7 +351,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     
     if (ciphertext_size <= 0) {
         fclose(fin);
-        if (!progress_cb) printf("오류: 잘못된 파일 크기입니다.\n");
+        if (!progress_cb) printf("Error: Invalid file size.\n");
         return 0;
     }
     
@@ -360,7 +360,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     uint8_t stored_hmac[64];
     if (fread(stored_hmac, 1, 64, fin) != 64) {
         fclose(fin);
-        if (!progress_cb) printf("오류: HMAC를 읽을 수 없습니다.\n");
+        if (!progress_cb) printf("Error: Cannot read HMAC.\n");
         return 0;
     }
     
@@ -371,7 +371,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     else if (header.key_length_code == 0x03) aes_key_bits = 256;
     else {
         fclose(fin);
-        if (!progress_cb) printf("오류: 지원하지 않는 AES 키 길이입니다.\n");
+        if (!progress_cb) printf("Error: Unsupported AES key length.\n");
         return 0;
     }
     
@@ -392,7 +392,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     memcpy(nonce_counter, header.nonce, 8);
     memset(nonce_counter + 8, 0, 8);
     
-    if (!progress_cb) printf("복호화 중...\n");
+    if (!progress_cb) printf("Decrypting...\n");
     
     // 암호문 위치로 이동 (헤더 + HMAC 다음)
     fseek(fin, sizeof(header) + 64, SEEK_SET);
@@ -401,7 +401,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     FILE* ftemp = tmpfile();
     if (!ftemp) {
         fclose(fin);
-        printf("오류: 임시 파일을 생성할 수 없습니다.\n");
+        printf("Error: Cannot create temporary file.\n");
         return 0;
     }
     
@@ -436,7 +436,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
             // 복호화는 전체의 50%로 간주 (HMAC 검증이 50%)
             progress_cb(total_read / 2, ciphertext_size, user_data);
         } else {
-            print_progress(total_read, ciphertext_size, "복호화");
+            print_progress(total_read, ciphertext_size, "Decrypting");
         }
     }
     
@@ -444,11 +444,11 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     
     if (!success) {
         fclose(ftemp);
-        if (!progress_cb) printf("\n복호화 실패!\n");
+        if (!progress_cb) printf("\nDecryption failed!\n");
         return 0;
     }
     
-    if (!progress_cb) printf("\n복호화 완료! HMAC 검증 중...\n");
+    if (!progress_cb) printf("\nDecryption completed! Verifying HMAC...\n");
     
     // HMAC 검증: 헤더 + 복호화한 평문으로 HMAC 생성
     HMAC_SHA512_CTX hmac_ctx;
@@ -471,11 +471,11 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     // HMAC 검증
     if (memcmp(stored_hmac, computed_hmac, 64) != 0) {
         fclose(ftemp);
-        if (!progress_cb) printf("오류: HMAC 무결성 검증 실패. 파일이 손상되었거나 패스워드가 잘못되었습니다.\n");
+        if (!progress_cb) printf("Error: HMAC integrity verification failed. File may be corrupted or password is incorrect.\n");
         return 0;
     }
     
-    if (!progress_cb) printf("HMAC 검증 성공! 무결성이 확인되었습니다.\n");
+    if (!progress_cb) printf("HMAC verification succeeded! Integrity confirmed.\n");
     
     // 진행률 업데이트 (HMAC 검증 완료)
     if (progress_cb) {
@@ -547,7 +547,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     if (progress_cb) {
         progress_cb(ciphertext_size, ciphertext_size, user_data);
     } else {
-        printf("복호화 완료!\n");
+        printf("Decryption completed!\n");
     }
     
     return 1;
@@ -570,9 +570,9 @@ int decrypt_file_with_progress(const char* input_path, const char* output_path,
 int main(void) {
     // OpenSSL 활성화 여부 확인
 #ifdef USE_OPENSSL
-    printf("OpenSSL 활성화됨\n");
+    printf("OpenSSL enabled\n");
 #else
-    printf("OpenSSL 비활성화됨\n");
+    printf("OpenSSL disabled\n");
 #endif
     
     // 시드 초기화 (프로그램 시작 시 한 번만)
@@ -585,66 +585,66 @@ int main(void) {
     int aes_key_bits;
     
     printf("=======================================\n");
-    printf("       파일 암호화/복호화 프로그램      \n");
+    printf("    File Encryption/Decryption Program \n");
     printf("=======================================\n\n");
     
     // 서비스 선택
-    printf("이용하실 서비스 번호를 입력하세요:\n");
-    printf("1. 파일 암호화\n");
-    printf("2. 파일 복호화\n");
-    printf("선택: ");
+    printf("Enter service number:\n");
+    printf("1. File Encryption\n");
+    printf("2. File Decryption\n");
+    printf("Choice: ");
     
     if (scanf("%d", &service) != 1 || (service != 1 && service != 2)) {
-        printf("오류: 잘못된 입력입니다.\n");
+        printf("Error: Invalid input.\n");
         return 1;
     }
     
     if (service == 1) {
         // 암호화
-        printf("\n암호화할 파일 경로를 입력하세요: ");
+        printf("\nEnter file path to encrypt: ");
         if (scanf("%511s", file_path) != 1) {
-            printf("오류: 파일 경로를 읽을 수 없습니다.\n");
+            printf("Error: Cannot read file path.\n");
             return 1;
         }
         
-        printf("\n파일을 암호화할 AES를 입력하세요:\n");
+        printf("\nSelect AES for encryption:\n");
         printf("1. AES-128\n");
         printf("2. AES-192\n");
         printf("3. AES-256\n");
-        printf("선택: ");
+        printf("Choice: ");
         
         if (scanf("%d", &aes_choice) != 1 || aes_choice < 1 || aes_choice > 3) {
-            printf("오류: 잘못된 선택입니다.\n");
+            printf("Error: Invalid choice.\n");
             return 1;
         }
         
         aes_key_bits = (aes_choice == 1) ? 128 : (aes_choice == 2) ? 192 : 256;
-        printf("\nAES-%d-CTR로 파일 암호화를 시작합니다.\n", aes_key_bits);
+        printf("\nStarting file encryption with AES-%d-CTR.\n", aes_key_bits);
         
-        printf("패스워드를 입력하세요 (영문+숫자 (대소문자) 최대 10자): ");
+        printf("Enter password (alphanumeric, case-sensitive, max 10 chars): ");
         if (scanf("%31s", password) != 1) {
-            printf("오류: 패스워드를 읽을 수 없습니다.\n");
+            printf("Error: Cannot read password.\n");
             return 1;
         }
         
         if (!validate_password(password)) {
-            printf("오류: 패스워드는 영문+숫자 (대소문자) 최대 10자여야 합니다.\n");
+            printf("Error: Password must be alphanumeric (case-sensitive) with maximum 10 characters.\n");
             return 1;
         }
         
         // 저장할 경로 입력
         char save_path[512];
-        printf("암호화된 파일을 저장할 경로를 입력하세요: ");
+        printf("Enter path to save encrypted file: ");
         if (scanf("%511s", save_path) != 1) {
-            printf("오류: 저장 경로를 읽을 수 없습니다.\n");
+            printf("Error: Cannot read save path.\n");
             return 1;
         }
         
         // 파일 이름 입력
         char file_name[256];
-        printf("암호화된 파일 이름을 입력하세요 (확장자 .enc는 자동 추가): ");
+        printf("Enter encrypted file name (.enc extension will be added automatically): ");
         if (scanf("%255s", file_name) != 1) {
-            printf("오류: 파일 이름을 읽을 수 없습니다.\n");
+            printf("Error: Cannot read file name.\n");
             return 1;
         }
         
@@ -663,48 +663,48 @@ int main(void) {
         }
         
         if (encrypt_file(file_path, output_path, aes_key_bits, password)) {
-            printf("파일 암호화와 hmac 생성에 성공하였습니다.\n");
-            printf("암호화된 파일: %s\n", output_path);
+            printf("File encryption and HMAC generation succeeded.\n");
+            printf("Encrypted file: %s\n", output_path);
         } else {
-            printf("오류: 파일 암호화에 실패했습니다.\n");
+            printf("Error: File encryption failed.\n");
             return 1;
         }
         
     } else if (service == 2) {
         // 복호화
-        printf("\n복호화할 파일 경로를 입력하세요: ");
+        printf("\nEnter file path to decrypt: ");
         if (scanf("%511s", file_path) != 1) {
-            printf("오류: 파일 경로를 읽을 수 없습니다.\n");
+            printf("Error: Cannot read file path.\n");
             return 1;
         }
         
         // 헤더에서 AES 키 길이 읽기
         int aes_key_bits = read_aes_key_length(file_path);
         if (aes_key_bits == 0) {
-            printf("오류: 암호화된 파일을 읽을 수 없거나 잘못된 형식입니다.\n");
+            printf("Error: Cannot read encrypted file or invalid format.\n");
             return 1;
         }
         
-        printf("\nAES-%d-CTR로 파일 복호화를 시작합니다.\n", aes_key_bits);
-        printf("암호화 시 사용했던 패스워드를 입력하세요: ");
+        printf("\nStarting file decryption with AES-%d-CTR.\n", aes_key_bits);
+        printf("Enter password used for encryption: ");
         if (scanf("%31s", password) != 1) {
-            printf("오류: 패스워드를 읽을 수 없습니다.\n");
+            printf("Error: Cannot read password.\n");
             return 1;
         }
         
         // 저장할 경로 입력
         char save_path[512];
-        printf("복호화된 파일을 저장할 경로를 입력하세요 (저장할 파일명 제외): ");
+        printf("Enter path to save decrypted file (excluding filename): ");
         if (scanf("%511s", save_path) != 1) {
-            printf("오류: 저장 경로를 읽을 수 없습니다.\n");
+            printf("Error: Cannot read save path.\n");
             return 1;
         }
         
         // 파일 이름 입력 (확장자는 자동으로 추가됨)
         char file_name[256];
-        printf("복호화된 파일 이름을 입력하세요 (확장자는 자동 추가): ");
+        printf("Enter decrypted file name (extension will be added automatically): ");
         if (scanf("%255s", file_name) != 1) {
-            printf("오류: 파일 이름을 읽을 수 없습니다.\n");
+            printf("Error: Cannot read file name.\n");
             return 1;
         }
         
@@ -724,10 +724,10 @@ int main(void) {
         
         char actual_output_path[512];
         if (decrypt_file(file_path, output_path, password, actual_output_path, sizeof(actual_output_path))) {
-            printf("무결성이 검증되었습니다. 파일 복호화에 성공했습니다.\n");
-            printf("복호화된 파일: %s\n", actual_output_path);
+            printf("Integrity verified. File decryption succeeded.\n");
+            printf("Decrypted file: %s\n", actual_output_path);
         } else {
-            printf("오류: 파일 복호화에 실패했습니다.\n");
+            printf("Error: File decryption failed.\n");
             return 1;
         }
     }

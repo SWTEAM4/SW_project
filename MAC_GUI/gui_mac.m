@@ -41,7 +41,7 @@ int GetSelectedAESBits(void);
                                                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
                                                  backing:NSBackingStoreBuffered
                                                    defer:NO];
-    [g_mainWindow setTitle:@"파일 암호화/복호화 프로그램"];
+    [g_mainWindow setTitle:@"File Encryption/Decryption Program"];
     [g_mainWindow center];
     [g_mainWindow setAcceptsMouseMovedEvents:YES];
     [g_mainWindow setDelegate:self];
@@ -62,7 +62,7 @@ int GetSelectedAESBits(void);
     
     // Password field
     NSTextField* passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(10, 270, 250, 20)];
-    [passwordLabel setStringValue:@"패스워드 (영문+숫자, 최대 10자):"];
+    [passwordLabel setStringValue:@"Password (Alphanumeric, max 10 chars):"];
     [passwordLabel setBezeled:NO];
     [passwordLabel setDrawsBackground:NO];
     [passwordLabel setEditable:NO];
@@ -74,13 +74,13 @@ int GetSelectedAESBits(void);
     [g_passwordField setSelectable:YES];
     [g_passwordField setBordered:YES];
     [g_passwordField setBezeled:YES];
-    [g_passwordField setPlaceholderString:@"패스워드를 입력하세요"];
+    [g_passwordField setPlaceholderString:@"Enter password"];
     [g_passwordField setStringValue:@""];
     [contentView addSubview:g_passwordField];
     
     // AES selection
     NSTextField* aesLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(280, 270, 200, 20)];
-    [aesLabel setStringValue:@"AES 키 길이 (암호화용):"];
+    [aesLabel setStringValue:@"AES Key Length (for encryption):"];
     [aesLabel setBezeled:NO];
     [aesLabel setDrawsBackground:NO];
     [aesLabel setEditable:NO];
@@ -95,7 +95,7 @@ int GetSelectedAESBits(void);
     
     // Buttons
     NSButton* encryptButton = [[NSButton alloc] initWithFrame:NSMakeRect(450, 245, 120, 30)];
-    [encryptButton setTitle:@"암호화"];
+    [encryptButton setTitle:@"Encrypt"];
     [encryptButton setButtonType:NSButtonTypeMomentaryPushIn];
     [encryptButton setBezelStyle:NSBezelStyleRounded];
     [encryptButton setTarget:self];
@@ -103,7 +103,7 @@ int GetSelectedAESBits(void);
     [contentView addSubview:encryptButton];
     
     NSButton* decryptButton = [[NSButton alloc] initWithFrame:NSMakeRect(450, 210, 120, 30)];
-    [decryptButton setTitle:@"복호화"];
+    [decryptButton setTitle:@"Decrypt"];
     [decryptButton setButtonType:NSButtonTypeMomentaryPushIn];
     [decryptButton setBezelStyle:NSBezelStyleRounded];
     [decryptButton setTarget:self];
@@ -111,7 +111,7 @@ int GetSelectedAESBits(void);
     [contentView addSubview:decryptButton];
     
     NSButton* fileSelectButton = [[NSButton alloc] initWithFrame:NSMakeRect(450, 175, 120, 25)];
-    [fileSelectButton setTitle:@"파일 선택"];
+    [fileSelectButton setTitle:@"Select Files"];
     [fileSelectButton setButtonType:NSButtonTypeMomentaryPushIn];
     [fileSelectButton setBezelStyle:NSBezelStyleRounded];
     [fileSelectButton setTarget:self];
@@ -151,7 +151,7 @@ int GetSelectedAESBits(void);
     
     // Get executable path
     NSString* exePath = [[NSBundle mainBundle] executablePath];
-    UpdateStatus([NSString stringWithFormat:@"파일을 드래그 앤 드롭하여 시작하세요.\n\n실행 경로: %@", exePath]);
+    UpdateStatus([NSString stringWithFormat:@"Drag and drop files to start.\n\nExecutable path: %@", exePath]);
     
     // Activate the application and show window
     [NSApp activateIgnoringOtherApps:YES];
@@ -196,7 +196,7 @@ int GetSelectedAESBits(void);
             }
         }
         [g_fileList reloadData];
-        UpdateStatus([NSString stringWithFormat:@"%lu개의 파일이 선택되었습니다.", (unsigned long)[g_droppedFiles count]]);
+        UpdateStatus([NSString stringWithFormat:@"%lu file(s) selected.", (unsigned long)[g_droppedFiles count]]);
     }
 }
 
@@ -224,7 +224,7 @@ int GetSelectedAESBits(void);
 void UpdateStatus(NSString* message) {
     if (g_statusText) {
         NSString* exePath = [[NSBundle mainBundle] executablePath];
-        NSString* fullMessage = [NSString stringWithFormat:@"%@\n\n실행 경로: %@", message, exePath];
+        NSString* fullMessage = [NSString stringWithFormat:@"%@\n\nExecutable path: %@", message, exePath];
         [g_statusText setString:fullMessage];
     }
 }
@@ -269,13 +269,13 @@ int GetSelectedAESBits(void) {
 
 void EncryptFiles(void) {
     if ([g_droppedFiles count] == 0) {
-        UpdateStatus(@"오류: 파일을 먼저 선택하세요.");
+        UpdateStatus(@"Error: Please select files first.");
         return;
     }
     
     NSString* password = [g_passwordField stringValue];
     if ([password length] == 0) {
-        UpdateStatus(@"오류: 패스워드를 입력하세요.");
+        UpdateStatus(@"Error: Please enter password.");
         return;
     }
     
@@ -285,7 +285,7 @@ void EncryptFiles(void) {
     passwordAnsi[sizeof(passwordAnsi) - 1] = '\0';
     
     if (!validate_password(passwordAnsi)) {
-        UpdateStatus(@"오류: 패스워드는 영문+숫자 (대소문자) 최대 10자여야 합니다.");
+        UpdateStatus(@"Error: Password must be alphanumeric (case-sensitive) with maximum 10 characters.");
         return;
     }
     
@@ -308,7 +308,7 @@ void EncryptFiles(void) {
         NSDictionary* attrs = [fileManager attributesOfItemAtPath:filePath error:nil];
         unsigned long long fileSize = [[attrs objectForKey:NSFileSize] unsignedLongLongValue];
         
-        UpdateProgress(0.0, [NSString stringWithFormat:@"암호화 중: %@", fileName]);
+        UpdateProgress(0.0, [NSString stringWithFormat:@"Encrypting: %@", fileName]);
         
         // Show save dialog
         NSSavePanel* savePanel = [NSSavePanel savePanel];
@@ -344,7 +344,7 @@ void EncryptFiles(void) {
                                 if (expectedSize > 0) {
                                     double progress = ((double)outSize / expectedSize) * 100.0;
                                     if (progress > 100.0) progress = 100.0;
-                                    UpdateProgress(progress, [NSString stringWithFormat:@"암호화 중: %@ (%.1f%%)", fileName, progress]);
+                                    UpdateProgress(progress, [NSString stringWithFormat:@"Encrypting: %@ (%.1f%%)", fileName, progress]);
                                 }
                             }
                         }
@@ -359,7 +359,7 @@ void EncryptFiles(void) {
                     completed++;
                     if (result) {
                         success_count++;
-                        UpdateProgress(100.0, [NSString stringWithFormat:@"암호화 완료: %@", fileName]);
+                        UpdateProgress(100.0, [NSString stringWithFormat:@"Encryption completed: %@", fileName]);
                     } else {
                         fail_count++;
                     }
@@ -367,7 +367,7 @@ void EncryptFiles(void) {
                     // 모든 파일 처리 완료 시
                     if (completed >= total_files) {
                         ShowProgress(NO);
-                        NSString* status = [NSString stringWithFormat:@"암호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
+                        NSString* status = [NSString stringWithFormat:@"Encryption completed: %d succeeded, %d failed", success_count, fail_count];
                         UpdateStatus(status);
                         
                         [g_passwordField setStringValue:@""];
@@ -385,7 +385,7 @@ void EncryptFiles(void) {
             
             if (completed >= total_files) {
                 ShowProgress(NO);
-                NSString* status = [NSString stringWithFormat:@"암호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
+                NSString* status = [NSString stringWithFormat:@"Encryption completed: %d succeeded, %d failed", success_count, fail_count];
                 UpdateStatus(status);
             }
         }
@@ -394,13 +394,13 @@ void EncryptFiles(void) {
 
 void DecryptFiles(void) {
     if ([g_droppedFiles count] == 0) {
-        UpdateStatus(@"오류: 파일을 먼저 선택하세요.");
+        UpdateStatus(@"Error: Please select files first.");
         return;
     }
     
     NSString* password = [g_passwordField stringValue];
     if ([password length] == 0) {
-        UpdateStatus(@"오류: 패스워드를 입력하세요.");
+        UpdateStatus(@"Error: Please enter password.");
         return;
     }
     
@@ -426,8 +426,8 @@ void DecryptFiles(void) {
         // Check .enc extension
         if (![[filePath pathExtension] isEqualToString:@"enc"]) {
             NSAlert* alert = [[NSAlert alloc] init];
-            [alert setMessageText:@"오류"];
-            [alert setInformativeText:@"복호화 시 필요한 파일은 .enc입니다."];
+            [alert setMessageText:@"Error"];
+            [alert setInformativeText:@"Files for decryption must have .enc extension."];
             [alert setAlertStyle:NSAlertStyleWarning];
             [alert runModal];
             completed++;
@@ -448,11 +448,11 @@ void DecryptFiles(void) {
         // Read AES key length
         int aes_key_bits = read_aes_key_length(inputPath);
         if (aes_key_bits > 0) {
-            NSString* infoMsg = [NSString stringWithFormat:@"파일 header에서 AES-%d로 암호화되어 있습니다. 자동으로 선택됩니다.", aes_key_bits];
+            NSString* infoMsg = [NSString stringWithFormat:@"File header shows encrypted with AES-%d. Will be selected automatically.", aes_key_bits];
             UpdateStatus(infoMsg);
         }
         
-        UpdateProgress(0.0, [NSString stringWithFormat:@"복호화 중: %@", fileName]);
+        UpdateProgress(0.0, [NSString stringWithFormat:@"Decrypting: %@", fileName]);
         
         // Show save dialog
         NSSavePanel* savePanel = [NSSavePanel savePanel];
@@ -486,7 +486,7 @@ void DecryptFiles(void) {
                                 unsigned long long outSize = [[outAttrs objectForKey:NSFileSize] unsignedLongLongValue];
                                 double progress = ((double)outSize / expectedOutputSize) * 100.0;
                                 if (progress > 100.0) progress = 100.0;
-                                UpdateProgress(progress, [NSString stringWithFormat:@"복호화 중: %@ (%.1f%%)", fileName, progress]);
+                                UpdateProgress(progress, [NSString stringWithFormat:@"Decrypting: %@ (%.1f%%)", fileName, progress]);
                             }
                         } else if ([fm fileExistsAtPath:outputPathStr]) {
                             NSDictionary* outAttrs = [fm attributesOfItemAtPath:outputPathStr error:nil];
@@ -494,7 +494,7 @@ void DecryptFiles(void) {
                                 unsigned long long outSize = [[outAttrs objectForKey:NSFileSize] unsignedLongLongValue];
                                 double progress = ((double)outSize / expectedOutputSize) * 100.0;
                                 if (progress > 100.0) progress = 100.0;
-                                UpdateProgress(progress, [NSString stringWithFormat:@"복호화 중: %@ (%.1f%%)", fileName, progress]);
+                                UpdateProgress(progress, [NSString stringWithFormat:@"Decrypting: %@ (%.1f%%)", fileName, progress]);
                             }
                         }
                     }
@@ -509,13 +509,13 @@ void DecryptFiles(void) {
                     completed++;
                     if (result) {
                         success_count++;
-                        UpdateProgress(100.0, [NSString stringWithFormat:@"복호화 완료: %@", fileName]);
+                        UpdateProgress(100.0, [NSString stringWithFormat:@"Decryption completed: %@", fileName]);
                     } else {
                         fail_count++;
                         password_fail_count++;
                         NSAlert* alert = [[NSAlert alloc] init];
-                        [alert setMessageText:@"복호화 실패"];
-                        [alert setInformativeText:@"패스워드가 틀렸습니다."];
+                        [alert setMessageText:@"Decryption Failed"];
+                        [alert setInformativeText:@"Incorrect password."];
                         [alert setAlertStyle:NSAlertStyleCritical];
                         [alert runModal];
                     }
@@ -526,12 +526,12 @@ void DecryptFiles(void) {
                         NSString* status;
                         if (fail_count > 0) {
                             if (password_fail_count > 0) {
-                                status = [NSString stringWithFormat:@"복호화 완료: 성공 %d개, 실패 %d개 (패스워드 확인 필요)", success_count, fail_count];
+                                status = [NSString stringWithFormat:@"Decryption completed: %d succeeded, %d failed (password verification needed)", success_count, fail_count];
                             } else {
-                                status = [NSString stringWithFormat:@"복호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
+                                status = [NSString stringWithFormat:@"Decryption completed: %d succeeded, %d failed", success_count, fail_count];
                             }
                         } else {
-                            status = [NSString stringWithFormat:@"무결성이 검증되었습니다. 복호화 완료: %d개", success_count];
+                            status = [NSString stringWithFormat:@"Integrity verified. Decryption completed: %d file(s)", success_count];
                         }
                         UpdateStatus(status);
                         
@@ -548,7 +548,7 @@ void DecryptFiles(void) {
             
             if (completed >= total_files) {
                 ShowProgress(NO);
-                NSString* status = [NSString stringWithFormat:@"복호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
+                NSString* status = [NSString stringWithFormat:@"Decryption completed: %d succeeded, %d failed", success_count, fail_count];
                 UpdateStatus(status);
             }
         }
