@@ -17,9 +17,13 @@ static NSPopUpButton* g_aesCombo = nil;
 static NSTextView* g_statusText = nil;
 static NSTableView* g_fileList = nil;
 static NSMutableArray* g_droppedFiles = nil;
+static NSProgressIndicator* g_progressBar = nil;
+static NSTextField* g_progressLabel = nil;
 
 // Function declarations
 void UpdateStatus(NSString* message);
+void UpdateProgress(double progress, NSString* message);
+void ShowProgress(BOOL show);
 void EncryptFiles(void);
 void DecryptFiles(void);
 int GetSelectedAESBits(void);
@@ -113,8 +117,28 @@ int GetSelectedAESBits(void);
     [fileSelectButton setAction:@selector(fileSelectClicked:)];
     [contentView addSubview:fileSelectButton];
     
+    // Progress bar
+    g_progressLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(10, 165, 560, 20)];
+    [g_progressLabel setStringValue:@""];
+    [g_progressLabel setBezeled:NO];
+    [g_progressLabel setDrawsBackground:NO];
+    [g_progressLabel setEditable:NO];
+    [g_progressLabel setAlignment:NSTextAlignmentCenter];
+    [g_progressLabel setFont:[NSFont systemFontOfSize:11]];
+    [g_progressLabel setHidden:YES];
+    [contentView addSubview:g_progressLabel];
+    
+    g_progressBar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(10, 140, 560, 20)];
+    [g_progressBar setStyle:NSProgressIndicatorStyleBar];
+    [g_progressBar setIndeterminate:NO];
+    [g_progressBar setMinValue:0.0];
+    [g_progressBar setMaxValue:100.0];
+    [g_progressBar setDoubleValue:0.0];
+    [g_progressBar setHidden:YES];
+    [contentView addSubview:g_progressBar];
+    
     // Status text
-    NSScrollView* statusScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(10, 10, 560, 150)];
+    NSScrollView* statusScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(10, 10, 560, 120)];
     g_statusText = [[NSTextView alloc] init];
     [g_statusText setEditable:NO];
     [statusScrollView setDocumentView:g_statusText];
@@ -204,6 +228,34 @@ void UpdateStatus(NSString* message) {
     }
 }
 
+void UpdateProgress(double progress, NSString* message) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_progressBar) {
+            [g_progressBar setDoubleValue:progress];
+        }
+        if (g_progressLabel && message) {
+            [g_progressLabel setStringValue:message];
+        }
+    });
+}
+
+void ShowProgress(BOOL show) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_progressBar) {
+            [g_progressBar setHidden:!show];
+            if (!show) {
+                [g_progressBar setDoubleValue:0.0];
+            }
+        }
+        if (g_progressLabel) {
+            [g_progressLabel setHidden:!show];
+            if (!show) {
+                [g_progressLabel setStringValue:@""];
+            }
+        }
+    });
+}
+
 int GetSelectedAESBits(void) {
     if (g_aesCombo) {
         NSInteger sel = [g_aesCombo indexOfSelectedItem];
@@ -237,40 +289,105 @@ void EncryptFiles(void) {
     }
     
     int aes_key_bits = GetSelectedAESBits();
-    int success_count = 0;
-    int fail_count = 0;
+    __block int success_count = 0;
+    __block int fail_count = 0;
+    __block int completed = 0;
+    int total_files = (int)[g_droppedFiles count];
     
-    for (NSString* filePath in g_droppedFiles) {
+    // 진행률 바 표시
+    ShowProgress(YES);
+    
+    for (NSInteger i = 0; i < [g_droppedFiles count]; i++) {
+        NSString* filePath = [g_droppedFiles objectAtIndex:i];
         const char* inputPath = [filePath UTF8String];
+        NSString* fileName = [filePath lastPathComponent];
+        
+        // 파일 크기 확인
+        NSFileManager* fileManager = [NSFileManager defaultManager];
+        NSDictionary* attrs = [fileManager attributesOfItemAtPath:filePath error:nil];
+        unsigned long long fileSize = [[attrs objectForKey:NSFileSize] unsignedLongLongValue];
+        
+        UpdateProgress(0.0, [NSString stringWithFormat:@"암호화 중: %@", fileName]);
         
         // Show save dialog
         NSSavePanel* savePanel = [NSSavePanel savePanel];
         [savePanel setAllowedFileTypes:@[@"enc"]];
         [savePanel setCanCreateDirectories:YES];
-        [savePanel setNameFieldStringValue:[[filePath lastPathComponent] stringByDeletingPathExtension]];
+        [savePanel setNameFieldStringValue:[fileName stringByDeletingPathExtension]];
         
         if ([savePanel runModal] == NSModalResponseOK) {
             NSURL* url = [savePanel URL];
-            const char* outputPath = [[url path] UTF8String];
+            NSString* outputPathStr = [url path];
+            const char* outputPath = [outputPathStr UTF8String];
             
-            if (encrypt_file(inputPath, outputPath, aes_key_bits, passwordAnsi)) {
-                success_count++;
-            } else {
-                fail_count++;
-            }
+            // 패스워드 복사 (블록에서 사용)
+            char* passwordCopy = (char*)malloc(32);
+            strncpy(passwordCopy, passwordAnsi, 31);
+            passwordCopy[31] = '\0';
+            
+            // 별도 스레드에서 암호화 실행 및 진행률 모니터링
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                __block int result = 0;
+                
+                // 진행률 모니터링 스레드 시작
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+                    NSFileManager* fm = [NSFileManager defaultManager];
+                    while (result == 0) {
+                        usleep(100000); // 0.1초마다 체크
+                        if ([fm fileExistsAtPath:outputPathStr]) {
+                            NSDictionary* outAttrs = [fm attributesOfItemAtPath:outputPathStr error:nil];
+                            if (outAttrs) {
+                                unsigned long long outSize = [[outAttrs objectForKey:NSFileSize] unsignedLongLongValue];
+                                // 헤더(40) + HMAC(64) = 104 바이트 추가
+                                unsigned long long expectedSize = fileSize + 104;
+                                if (expectedSize > 0) {
+                                    double progress = ((double)outSize / expectedSize) * 100.0;
+                                    if (progress > 100.0) progress = 100.0;
+                                    UpdateProgress(progress, [NSString stringWithFormat:@"암호화 중: %@ (%.1f%%)", fileName, progress]);
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // 암호화 실행
+                result = encrypt_file(inputPath, outputPath, aes_key_bits, passwordCopy);
+                free(passwordCopy);
+                
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    completed++;
+                    if (result) {
+                        success_count++;
+                        UpdateProgress(100.0, [NSString stringWithFormat:@"암호화 완료: %@", fileName]);
+                    } else {
+                        fail_count++;
+                    }
+                    
+                    // 모든 파일 처리 완료 시
+                    if (completed >= total_files) {
+                        ShowProgress(NO);
+                        NSString* status = [NSString stringWithFormat:@"암호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
+                        UpdateStatus(status);
+                        
+                        [g_passwordField setStringValue:@""];
+                        
+                        if (fail_count == 0) {
+                            [g_droppedFiles removeAllObjects];
+                            [g_fileList reloadData];
+                        }
+                    }
+                });
+            });
         } else {
+            completed++;
             fail_count++;
+            
+            if (completed >= total_files) {
+                ShowProgress(NO);
+                NSString* status = [NSString stringWithFormat:@"암호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
+                UpdateStatus(status);
+            }
         }
-    }
-    
-    NSString* status = [NSString stringWithFormat:@"암호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
-    UpdateStatus(status);
-    
-    [g_passwordField setStringValue:@""];
-    
-    if (fail_count == 0) {
-        [g_droppedFiles removeAllObjects];
-        [g_fileList reloadData];
     }
 }
 
@@ -291,12 +408,19 @@ void DecryptFiles(void) {
     strncpy(passwordAnsi, passwordCStr, sizeof(passwordAnsi) - 1);
     passwordAnsi[sizeof(passwordAnsi) - 1] = '\0';
     
-    int success_count = 0;
-    int fail_count = 0;
-    int password_fail_count = 0;
+    __block int success_count = 0;
+    __block int fail_count = 0;
+    __block int password_fail_count = 0;
+    __block int completed = 0;
+    int total_files = (int)[g_droppedFiles count];
     
-    for (NSString* filePath in g_droppedFiles) {
+    // 진행률 바 표시
+    ShowProgress(YES);
+    
+    for (NSInteger i = 0; i < [g_droppedFiles count]; i++) {
+        NSString* filePath = [g_droppedFiles objectAtIndex:i];
         const char* inputPath = [filePath UTF8String];
+        NSString* fileName = [filePath lastPathComponent];
         
         // Check .enc extension
         if (![[filePath pathExtension] isEqualToString:@"enc"]) {
@@ -305,9 +429,20 @@ void DecryptFiles(void) {
             [alert setInformativeText:@"복호화 시 필요한 파일은 .enc입니다."];
             [alert setAlertStyle:NSAlertStyleWarning];
             [alert runModal];
+            completed++;
             fail_count++;
+            if (completed >= total_files) {
+                ShowProgress(NO);
+            }
             continue;
         }
+        
+        // 파일 크기 확인
+        NSFileManager* fileManager = [NSFileManager defaultManager];
+        NSDictionary* attrs = [fileManager attributesOfItemAtPath:filePath error:nil];
+        unsigned long long fileSize = [[attrs objectForKey:NSFileSize] unsignedLongLongValue];
+        // 헤더(40) + HMAC(64) = 104 바이트 제외
+        unsigned long long expectedOutputSize = (fileSize > 104) ? (fileSize - 104) : 0;
         
         // Read AES key length
         int aes_key_bits = read_aes_key_length(inputPath);
@@ -316,48 +451,106 @@ void DecryptFiles(void) {
             UpdateStatus(infoMsg);
         }
         
+        UpdateProgress(0.0, [NSString stringWithFormat:@"복호화 중: %@", fileName]);
+        
         // Show save dialog
         NSSavePanel* savePanel = [NSSavePanel savePanel];
         [savePanel setCanCreateDirectories:YES];
-        NSString* defaultName = [[filePath lastPathComponent] stringByDeletingPathExtension];
+        NSString* defaultName = [fileName stringByDeletingPathExtension];
         [savePanel setNameFieldStringValue:defaultName];
         
         if ([savePanel runModal] == NSModalResponseOK) {
             NSURL* url = [savePanel URL];
-            const char* outputPath = [[url path] UTF8String];
-            char final_output_path[512];
+            NSString* outputPathStr = [url path];
+            const char* outputPath = [outputPathStr UTF8String];
             
-            if (decrypt_file(inputPath, outputPath, passwordAnsi, final_output_path, sizeof(final_output_path))) {
-                success_count++;
-            } else {
-                fail_count++;
-                password_fail_count++;
-                NSAlert* alert = [[NSAlert alloc] init];
-                [alert setMessageText:@"복호화 실패"];
-                [alert setInformativeText:@"패스워드가 틀렸습니다."];
-                [alert setAlertStyle:NSAlertStyleCritical];
-                [alert runModal];
-            }
+            // 패스워드 복사 (블록에서 사용)
+            char* passwordCopy = (char*)malloc(32);
+            strncpy(passwordCopy, passwordAnsi, 31);
+            passwordCopy[31] = '\0';
+            
+            // 별도 스레드에서 복호화 실행 및 진행률 모니터링
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                __block int result = 0;
+                char* final_output_path = (char*)malloc(512);
+                
+                // 진행률 모니터링 스레드 시작
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+                    NSFileManager* fm = [NSFileManager defaultManager];
+                    while (result == 0) {
+                        usleep(100000); // 0.1초마다 체크
+                        if (final_output_path[0] != '\0' && [fm fileExistsAtPath:[NSString stringWithUTF8String:final_output_path]]) {
+                            NSDictionary* outAttrs = [fm attributesOfItemAtPath:[NSString stringWithUTF8String:final_output_path] error:nil];
+                            if (outAttrs && expectedOutputSize > 0) {
+                                unsigned long long outSize = [[outAttrs objectForKey:NSFileSize] unsignedLongLongValue];
+                                double progress = ((double)outSize / expectedOutputSize) * 100.0;
+                                if (progress > 100.0) progress = 100.0;
+                                UpdateProgress(progress, [NSString stringWithFormat:@"복호화 중: %@ (%.1f%%)", fileName, progress]);
+                            }
+                        } else if ([fm fileExistsAtPath:outputPathStr]) {
+                            NSDictionary* outAttrs = [fm attributesOfItemAtPath:outputPathStr error:nil];
+                            if (outAttrs && expectedOutputSize > 0) {
+                                unsigned long long outSize = [[outAttrs objectForKey:NSFileSize] unsignedLongLongValue];
+                                double progress = ((double)outSize / expectedOutputSize) * 100.0;
+                                if (progress > 100.0) progress = 100.0;
+                                UpdateProgress(progress, [NSString stringWithFormat:@"복호화 중: %@ (%.1f%%)", fileName, progress]);
+                            }
+                        }
+                    }
+                    free(final_output_path);
+                });
+                
+                // 복호화 실행
+                result = decrypt_file(inputPath, outputPath, passwordCopy, final_output_path, 512);
+                free(passwordCopy);
+                
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    completed++;
+                    if (result) {
+                        success_count++;
+                        UpdateProgress(100.0, [NSString stringWithFormat:@"복호화 완료: %@", fileName]);
+                    } else {
+                        fail_count++;
+                        password_fail_count++;
+                        NSAlert* alert = [[NSAlert alloc] init];
+                        [alert setMessageText:@"복호화 실패"];
+                        [alert setInformativeText:@"패스워드가 틀렸습니다."];
+                        [alert setAlertStyle:NSAlertStyleCritical];
+                        [alert runModal];
+                    }
+                    
+                    // 모든 파일 처리 완료 시
+                    if (completed >= total_files) {
+                        ShowProgress(NO);
+                        NSString* status;
+                        if (fail_count > 0) {
+                            if (password_fail_count > 0) {
+                                status = [NSString stringWithFormat:@"복호화 완료: 성공 %d개, 실패 %d개 (패스워드 확인 필요)", success_count, fail_count];
+                            } else {
+                                status = [NSString stringWithFormat:@"복호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
+                            }
+                        } else {
+                            status = [NSString stringWithFormat:@"무결성이 검증되었습니다. 복호화 완료: %d개", success_count];
+                        }
+                        UpdateStatus(status);
+                        
+                        if (fail_count == 0) {
+                            [g_droppedFiles removeAllObjects];
+                            [g_fileList reloadData];
+                        }
+                    }
+                });
+            });
         } else {
+            completed++;
             fail_count++;
+            
+            if (completed >= total_files) {
+                ShowProgress(NO);
+                NSString* status = [NSString stringWithFormat:@"복호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
+                UpdateStatus(status);
+            }
         }
-    }
-    
-    NSString* status;
-    if (fail_count > 0) {
-        if (password_fail_count > 0) {
-            status = [NSString stringWithFormat:@"복호화 완료: 성공 %d개, 실패 %d개 (패스워드 확인 필요)", success_count, fail_count];
-        } else {
-            status = [NSString stringWithFormat:@"복호화 완료: 성공 %d개, 실패 %d개", success_count, fail_count];
-        }
-    } else {
-        status = [NSString stringWithFormat:@"무결성이 검증되었습니다. 복호화 완료: %d개", success_count];
-    }
-    UpdateStatus(status);
-    
-    if (fail_count == 0) {
-        [g_droppedFiles removeAllObjects];
-        [g_fileList reloadData];
     }
 }
 
