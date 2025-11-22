@@ -35,12 +35,6 @@ extern "C" {
 
     void hmac_sha512_final(HMAC_SHA512_CTX* ctx, uint8_t* mac_out);
 
-    /* ---- RFC4231 셀프테스트 ---- */
-    int hmac_sha512_selftest(void);
-
-    /* 요약 리포트: 모두 통과=1, 아니면 0. 실패한 TC 번호는 failed_case로 리턴(없으면 -1). */
-    int hmac_sha512_selftest_summary(int* passed, int* total, int* failed_case);
-
     /* 리포트 타입 */
     typedef struct {
         int   id;        /* 1..7 */
