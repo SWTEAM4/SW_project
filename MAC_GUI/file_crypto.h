@@ -48,6 +48,11 @@ int encrypt_file_with_progress(const char* input_path, const char* output_path,
 int decrypt_file(const char* input_path, const char* output_path,
                  const char* password, char* final_output_path, size_t final_path_size);
 
+// 파일 복호화 (진행률 콜백 지원)
+int decrypt_file_with_progress(const char* input_path, const char* output_path,
+                               const char* password, char* final_output_path, size_t final_path_size,
+                               progress_callback_t progress_cb, void* user_data);
+
 // 헤더에서 AES 키 길이 읽기
 int read_aes_key_length(const char* input_path);
 

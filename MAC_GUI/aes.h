@@ -13,9 +13,6 @@ extern "C" {
 	CRYPTO_STATUS AES_decrypt_block(const AES_CTX* ctx, const uint8_t in[AES_BLOCK_SIZE], uint8_t out[AES_BLOCK_SIZE]);
 	CRYPTO_STATUS AES_CTR_crypt(const AES_CTX* ctx, const uint8_t* in, size_t length, uint8_t* out, uint8_t nonce_counter[AES_BLOCK_SIZE]);
 
-	// 테스트 함수 (aes.c 내부 구현)
-	int test_aes(void);
-
 #ifdef __cplusplus
 }
 #endif
