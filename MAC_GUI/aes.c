@@ -2,9 +2,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#ifdef USE_OPENSSL
-#include <openssl/rand.h>
-#endif
+#include <dlfcn.h>  // For dynamic library loading
 #include "crypto_api.h"
 
 /*****************************************************
@@ -513,32 +511,80 @@ CRYPTO_STATUS AES_CTR_crypt(const AES_CTX* ctx, const uint8_t* in, size_t length
     return CRYPTO_SUCCESS;
 }
 
+// OpenSSL 함수 타입 정의
+typedef int (*RAND_bytes_func)(unsigned char *buf, int num);
+
+// 전역 변수로 OpenSSL 핸들과 함수 포인터 저장
+static void* g_openssl_handle = NULL;
+static RAND_bytes_func g_rand_bytes = NULL;
+static int g_openssl_checked = 0;
+
 /**
- * @brief crypto_random_bytes: OpenSSL RAND_bytes를 사용하여 암호학적으로 안전한 난수를 생성합니다.
+ * @brief try_load_openssl: 런타임에 OpenSSL 라이브러리를 동적으로 로드합니다.
+ * @return 성공 시 1, 실패 시 0
+ */
+static int try_load_openssl(void) {
+    if (g_openssl_checked) {
+        return (g_openssl_handle != NULL);
+    }
+    g_openssl_checked = 1;
+    
+    // 가능한 OpenSSL 라이브러리 경로들 (macOS)
+    const char* possible_paths[] = {
+        "/usr/local/lib/libssl.dylib",      // Intel Mac Homebrew
+        "/opt/homebrew/lib/libssl.dylib",   // Apple Silicon Homebrew
+        "/usr/lib/libssl.dylib",            // System default (if available)
+        "libssl.dylib",                     // System library path
+        NULL
+    };
+    
+    for (int i = 0; possible_paths[i] != NULL; i++) {
+        g_openssl_handle = dlopen(possible_paths[i], RTLD_LAZY);
+        if (g_openssl_handle) {
+            // RAND_bytes 함수 포인터 가져오기
+            g_rand_bytes = (RAND_bytes_func)dlsym(g_openssl_handle, "RAND_bytes");
+            if (g_rand_bytes) {
+                printf("[DEBUG] OpenSSL library loaded from: %s\n", possible_paths[i]);
+                return 1;
+            }
+            // 함수를 찾지 못하면 라이브러리 닫기
+            dlclose(g_openssl_handle);
+            g_openssl_handle = NULL;
+        }
+    }
+    
+    printf("[DEBUG] OpenSSL library not found, will use fallback rand()\n");
+    return 0;
+}
+
+/**
+ * @brief crypto_random_bytes: OpenSSL RAND_bytes를 런타임에 동적으로 로드하여 사용합니다.
  * @param buf 난수를 저장할 버퍼
  * @param len 생성할 난수의 바이트 수
  * @return 성공 시 CRYPTO_SUCCESS, 실패 시 CRYPTO_ERR_INTERNAL_FAILURE
- * @note 이 함수를 사용하려면 컴파일 시 -DUSE_OPENSSL 플래그와 OpenSSL 라이브러리 링크가 필요합니다.
+ * @note OpenSSL이 설치되어 있으면 자동으로 사용하고, 없으면 fallback rand()를 사용합니다.
  */
 CRYPTO_STATUS crypto_random_bytes(uint8_t* buf, size_t len) {
-#ifdef USE_OPENSSL
     if (!buf && len > 0) return CRYPTO_ERR_INVALID_INPUT;
     if (len == 0) return CRYPTO_SUCCESS;
     
-    // OpenSSL RAND_bytes 함수 호출
-    // 반환값: 1 = 성공, 0 = 실패
-    if (RAND_bytes(buf, (int)len) == 1) {
-        printf("[DEBUG] OpenSSL RAND_bytes used (%zu bytes)\n", len);
-        return CRYPTO_SUCCESS;
-    } else {
-        printf("[DEBUG] OpenSSL RAND_bytes failed\n");
-        return CRYPTO_ERR_INTERNAL_FAILURE;
+    // OpenSSL 로드 시도 (최초 1회만)
+    if (!g_openssl_checked) {
+        try_load_openssl();
     }
-#else
-    // OpenSSL이 활성화되지 않은 경우 오류 반환
-    (void)buf;  // unused parameter warning 방지
-    (void)len;
-    printf("[DEBUG] OpenSSL is disabled\n");
+    
+    // OpenSSL이 로드되었고 RAND_bytes 함수가 있으면 사용
+    if (g_openssl_handle && g_rand_bytes) {
+        if (g_rand_bytes(buf, (int)len) == 1) {
+            printf("[DEBUG] OpenSSL RAND_bytes used (%zu bytes)\n", len);
+            return CRYPTO_SUCCESS;
+        } else {
+            printf("[DEBUG] OpenSSL RAND_bytes failed\n");
+            return CRYPTO_ERR_INTERNAL_FAILURE;
+        }
+    }
+    
+    // OpenSSL이 없으면 fallback으로 유도 (cli.c의 generate_nonce에서 처리)
+    printf("[DEBUG] OpenSSL not available, fallback will be used\n");
     return CRYPTO_ERR_INTERNAL_FAILURE;
-#endif
 }
