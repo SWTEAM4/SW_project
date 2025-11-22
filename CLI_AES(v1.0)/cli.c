@@ -12,12 +12,6 @@
 #include "file_crypto.h"
 #include "platform_utils.h"
 
-// gettimeofday를 위해 sys/time.h 추가 (macOS/Linux)
-// platform_utils.h를 먼저 include해야 PLATFORM_MAC이 정의됨
-#if defined(PLATFORM_MAC) || defined(PLATFORM_LINUX)
-#include <sys/time.h>
-#endif
-
 
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
@@ -26,8 +20,8 @@
 #endif
 #endif
 
-// 청크 크기 정의 (512KB - 성능 최적화)
-#define FILE_CHUNK_SIZE (512 * 1024)
+// 청크 크기 정의 (64KB)
+#define FILE_CHUNK_SIZE (64 * 1024)
 
 // 패스워드 검증 (영문+숫자, 대소문자, 최대 10자)
 int validate_password(const char* password) {
@@ -202,6 +196,27 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
     hmac_sha512_init(&hmac_ctx, hmac_key, 24);
     hmac_sha512_update(&hmac_ctx, (uint8_t*)&header, sizeof(header));  // 헤더를 HMAC에 포함
     
+    // 원본 파일을 읽으면서 HMAC 업데이트 (평문)
+    uint8_t plaintext_buffer[FILE_CHUNK_SIZE];
+    size_t bytes_read;
+    long total_processed = 0;
+    
+    // 파일을 처음부터 다시 읽기 위해 위치 저장
+    long file_pos = ftell(fin);
+    fseek(fin, 0, SEEK_SET);
+    
+    while ((bytes_read = fread(plaintext_buffer, 1, FILE_CHUNK_SIZE, fin)) > 0) {
+        // HMAC 업데이트 (원본 파일 평문에 대해)
+        hmac_sha512_update(&hmac_ctx, plaintext_buffer, bytes_read);
+    }
+    
+    // HMAC 최종 계산
+    uint8_t hmac[64];
+    hmac_sha512_final(&hmac_ctx, hmac);
+    
+    // 파일 위치를 다시 처음으로
+    fseek(fin, 0, SEEK_SET);
+    
     // 출력 파일 작성
     FILE* fout = platform_fopen(output_path, "wb");
     if (!fout) {
@@ -212,25 +227,15 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
     // 헤더 쓰기
     fwrite(&header, 1, sizeof(header), fout);
     
-    // HMAC을 위한 임시 공간 (나중에 쓸 예정)
-    long hmac_position = ftell(fout);
-    uint8_t hmac_placeholder[64] = {0};
-    fwrite(hmac_placeholder, 1, 64, fout);  // 나중에 채울 공간
+    // HMAC 쓰기 (헤더 다음)
+    fwrite(hmac, 1, 64, fout);
     
-    // 파일을 한 번만 읽으면서 HMAC 계산과 암호화 동시 수행
+    // 청크 단위로 파일 읽기, 암호화, 쓰기
     uint8_t buffer[FILE_CHUNK_SIZE];
-    size_t bytes_read;
-    long total_processed = 0;
     int success = 1;
     
-    // 파일 위치를 처음으로
-    fseek(fin, 0, SEEK_SET);
-    
     while ((bytes_read = fread(buffer, 1, FILE_CHUNK_SIZE, fin)) > 0) {
-        // HMAC 업데이트 (평문에 대해 - 암호화 전)
-        hmac_sha512_update(&hmac_ctx, buffer, bytes_read);
-        
-        // 동시에 암호화 (in-place)
+        // 청크 암호화 (in-place)
         if (AES_CTR_crypt(&aes_ctx, buffer, bytes_read, buffer, nonce_counter) != CRYPTO_SUCCESS) {
             success = 0;
             break;
@@ -247,26 +252,8 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
         if (progress_cb) {
             progress_cb(total_processed, file_size, user_data);
         } else {
-            // 진행률 출력을 1% 단위로만 (성능 최적화)
-            static long last_percent = -1;
-            long current_percent = (total_processed * 100) / file_size;
-            if (current_percent != last_percent) {
-                print_progress(total_processed, file_size, "Encrypting");
-                last_percent = current_percent;
-            }
+            print_progress(total_processed, file_size, "Encrypting");
         }
-    }
-    
-    // HMAC 최종 계산
-    uint8_t hmac[64];
-    hmac_sha512_final(&hmac_ctx, hmac);
-    
-    // HMAC을 올바른 위치에 쓰기
-    if (success) {
-        long current_pos = ftell(fout);
-        fseek(fout, hmac_position, SEEK_SET);
-        fwrite(hmac, 1, 64, fout);
-        fseek(fout, current_pos, SEEK_SET);  // 원래 위치로 복귀
     }
     
     fclose(fin);
@@ -449,13 +436,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
             // 복호화는 전체의 50%로 간주 (HMAC 검증이 50%)
             progress_cb(total_read / 2, ciphertext_size, user_data);
         } else {
-            // 진행률 출력을 1% 단위로만 (성능 최적화)
-            static long last_percent_decrypt = -1;
-            long current_percent = (total_read * 100) / ciphertext_size;
-            if (current_percent != last_percent_decrypt) {
-                print_progress(total_read, ciphertext_size, "Decrypting");
-                last_percent_decrypt = current_percent;
-            }
+            print_progress(total_read, ciphertext_size, "Decrypting");
         }
     }
     
@@ -585,7 +566,7 @@ int decrypt_file_with_progress(const char* input_path, const char* output_path,
     return decrypt_file_internal(input_path, output_path, password, final_output_path, final_path_size, progress_cb, user_data);
 }
 
-//#ifndef BUILD_GUI
+#ifndef BUILD_GUI
 int main(void) {
     // OpenSSL 활성화 여부 확인 (런타임 체크)
     // crypto_random_bytes가 호출되면 자동으로 OpenSSL을 로드 시도함
@@ -683,43 +664,8 @@ int main(void) {
             snprintf(output_path, sizeof(output_path), "%s%s.enc", save_path, file_name);
         }
         
-        // 시간 측정 시작
-#ifdef PLATFORM_WINDOWS
-        clock_t start = clock();
-#else
-        struct timeval start, end;
-        gettimeofday(&start, NULL);
-#endif
-        
         if (encrypt_file(file_path, output_path, aes_key_bits, password)) {
-            // 시간 측정 종료 및 계산
-#ifdef PLATFORM_WINDOWS
-            clock_t end = clock();
-            double elapsed = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0; // 밀리초
             printf("File encryption and HMAC generation succeeded.\n");
-            printf("Encryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
-#else
-            gettimeofday(&end, NULL);
-            double elapsed = (end.tv_sec - start.tv_sec) * 1000.0 + 
-                           (end.tv_usec - start.tv_usec) / 1000.0; // 밀리초
-            printf("File encryption and HMAC generation succeeded.\n");
-            printf("Encryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
-#endif
-            
-            // 파일 크기 확인 및 속도 계산
-            FILE* f = fopen(file_path, "rb");
-            if (f) {
-                fseek(f, 0, SEEK_END);
-                long file_size = ftell(f);
-                fclose(f);
-                
-                if (elapsed > 0 && file_size > 0) {
-                    double speed = (file_size / (1024.0 * 1024.0)) / (elapsed / 1000.0); // MB/s
-                    printf("File size: %.2f MB\n", file_size / (1024.0 * 1024.0));
-                    printf("Encryption speed: %.2f MB/s\n", speed);
-                }
-            }
-            
             printf("Encrypted file: %s\n", output_path);
         } else {
             printf("Error: File encryption failed.\n");
@@ -778,44 +724,9 @@ int main(void) {
             snprintf(output_path, sizeof(output_path), "%s%s", save_path, file_name);
         }
         
-        // 시간 측정 시작
-#ifdef PLATFORM_WINDOWS
-        clock_t start = clock();
-#else
-        struct timeval start, end;
-        gettimeofday(&start, NULL);
-#endif
-        
         char actual_output_path[512];
         if (decrypt_file(file_path, output_path, password, actual_output_path, sizeof(actual_output_path))) {
-            // 시간 측정 종료 및 계산
-#ifdef PLATFORM_WINDOWS
-            clock_t end = clock();
-            double elapsed = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0; // 밀리초
             printf("Integrity verified. File decryption succeeded.\n");
-            printf("Decryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
-#else
-            gettimeofday(&end, NULL);
-            double elapsed = (end.tv_sec - start.tv_sec) * 1000.0 + 
-                           (end.tv_usec - start.tv_usec) / 1000.0; // 밀리초
-            printf("Integrity verified. File decryption succeeded.\n");
-            printf("Decryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
-#endif
-            
-            // 파일 크기 확인 및 속도 계산
-            FILE* f = fopen(file_path, "rb");
-            if (f) {
-                fseek(f, 0, SEEK_END);
-                long file_size = ftell(f);
-                fclose(f);
-                
-                if (elapsed > 0 && file_size > 0) {
-                    double speed = (file_size / (1024.0 * 1024.0)) / (elapsed / 1000.0); // MB/s
-                    printf("File size: %.2f MB\n", file_size / (1024.0 * 1024.0));
-                    printf("Decryption speed: %.2f MB/s\n", speed);
-                }
-            }
-            
             printf("Decrypted file: %s\n", actual_output_path);
         } else {
             printf("Error: File decryption failed.\n");
@@ -825,4 +736,4 @@ int main(void) {
     
     return 0;
 }
-//#endif // BUILD_GUI
+#endif // BUILD_GUI
