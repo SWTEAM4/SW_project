@@ -566,7 +566,7 @@ int decrypt_file_with_progress(const char* input_path, const char* output_path,
     return decrypt_file_internal(input_path, output_path, password, final_output_path, final_path_size, progress_cb, user_data);
 }
 
-//#ifndef BUILD_GUI
+#ifndef BUILD_GUI
 int main(void) {
     // OpenSSL 활성화 여부 확인 (런타임 체크)
     // crypto_random_bytes가 호출되면 자동으로 OpenSSL을 로드 시도함
@@ -736,4 +736,4 @@ int main(void) {
     
     return 0;
 }
-//#endif // BUILD_GUI
+#endif // BUILD_GUI

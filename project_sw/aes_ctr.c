@@ -2,9 +2,18 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "platform_utils.h"  // PLATFORM_MAC 정의를 위해 먼저 include
+
 #ifdef USE_OPENSSL
 #include <openssl/rand.h>
 #endif
+
+// macOS에서 OpenSSL 동적 로딩을 위한 추가
+#ifdef PLATFORM_MAC
+#include <dlfcn.h>
+#include <stdlib.h>
+#endif
+
 #include "crypto_api.h"
 
 /*****************************************************
@@ -513,27 +522,92 @@ CRYPTO_STATUS AES_CTR_crypt(const AES_CTX* ctx, const uint8_t* in, size_t length
     return CRYPTO_SUCCESS;
 }
 
+#ifdef PLATFORM_MAC
+// OpenSSL 동적 로딩 관련 전역 변수
+static void* g_openssl_handle = NULL;
+static int (*g_rand_bytes)(unsigned char*, int) = NULL;
+static int g_openssl_checked = 0;
+
+// OpenSSL 라이브러리 경로 목록 (macOS에서 일반적인 경로들)
+static const char* openssl_paths[] = {
+    "/opt/homebrew/lib/libcrypto.dylib",      // Apple Silicon Homebrew
+    "/opt/homebrew/opt/openssl@3/lib/libcrypto.dylib",  // OpenSSL 3.x
+    "/opt/homebrew/opt/openssl@1.1/lib/libcrypto.dylib", // OpenSSL 1.1.x
+    "/usr/local/lib/libcrypto.dylib",          // Intel Homebrew
+    "/usr/local/opt/openssl/lib/libcrypto.dylib", // Intel Homebrew (구버전)
+    "/usr/lib/libcrypto.dylib",                // 시스템 (일반적으로 없음)
+    NULL
+};
+
+// OpenSSL 동적 로딩 함수
+static int load_openssl_mac(void) {
+    if (g_openssl_checked) {
+        return (g_rand_bytes != NULL) ? 1 : 0;
+    }
+    
+    g_openssl_checked = 1;
+    
+    // 각 경로를 시도
+    for (int i = 0; openssl_paths[i] != NULL; i++) {
+        g_openssl_handle = dlopen(openssl_paths[i], RTLD_LAZY);
+        if (g_openssl_handle) {
+            // RAND_bytes 함수 포인터 가져오기
+            g_rand_bytes = (int (*)(unsigned char*, int))dlsym(g_openssl_handle, "RAND_bytes");
+            if (g_rand_bytes) {
+                printf("[INFO] OpenSSL loaded from: %s\n", openssl_paths[i]);
+                return 1;
+            }
+            // 함수를 찾지 못하면 핸들 닫기
+            dlclose(g_openssl_handle);
+            g_openssl_handle = NULL;
+            printf("[DEBUG] RAND_bytes not found in: %s\n", openssl_paths[i]);
+        } else {
+            // dlopen 실패 시 에러 메시지 출력 (디버깅용)
+            const char* error = dlerror();
+            if (error) {
+                printf("[DEBUG] Failed to load %s: %s\n", openssl_paths[i], error);
+            }
+        }
+    }
+    
+    printf("[WARNING] OpenSSL not found. Using fallback random number generator.\n");
+    printf("[INFO] To install OpenSSL: brew install openssl\n");
+    return 0;
+}
+#endif
+
 /**
  * @brief crypto_random_bytes: OpenSSL RAND_bytes를 사용하여 암호학적으로 안전한 난수를 생성합니다.
  * @param buf 난수를 저장할 버퍼
  * @param len 생성할 난수의 바이트 수
  * @return 성공 시 CRYPTO_SUCCESS, 실패 시 CRYPTO_ERR_INTERNAL_FAILURE
- * @note 이 함수를 사용하려면 컴파일 시 -DUSE_OPENSSL 플래그와 OpenSSL 라이브러리 링크가 필요합니다.
+ * @note macOS에서는 런타임에 OpenSSL을 동적으로 로드합니다.
+ *       다른 플랫폼에서는 컴파일 시 -DUSE_OPENSSL 플래그와 OpenSSL 라이브러리 링크가 필요합니다.
  */
 CRYPTO_STATUS crypto_random_bytes(uint8_t* buf, size_t len) {
-#ifdef USE_OPENSSL
     if (!buf && len > 0) return CRYPTO_ERR_INVALID_INPUT;
     if (len == 0) return CRYPTO_SUCCESS;
-    
-    // OpenSSL RAND_bytes 함수 호출
-    // 반환값: 1 = 성공, 0 = 실패
+
+#ifdef USE_OPENSSL
+    // 컴파일 타임에 OpenSSL이 링크된 경우
     if (RAND_bytes(buf, (int)len) == 1) {
         return CRYPTO_SUCCESS;
     } else {
         return CRYPTO_ERR_INTERNAL_FAILURE;
     }
+#elif defined(PLATFORM_MAC)
+    // macOS: OpenSSL을 동적으로 로드 시도
+    if (load_openssl_mac() && g_rand_bytes) {
+        if (g_rand_bytes(buf, (int)len) == 1) {
+            return CRYPTO_SUCCESS;
+        } else {
+            return CRYPTO_ERR_INTERNAL_FAILURE;
+        }
+    }
+    // OpenSSL을 찾지 못한 경우
+    return CRYPTO_ERR_INTERNAL_FAILURE;
 #else
-    // OpenSSL이 활성화되지 않은 경우 오류 반환
+    // 다른 플랫폼 (Windows 등)
     (void)buf;  // unused parameter warning 방지
     (void)len;
     return CRYPTO_ERR_INTERNAL_FAILURE;
