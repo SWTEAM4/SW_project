@@ -568,14 +568,12 @@ int decrypt_file_with_progress(const char* input_path, const char* output_path,
 
 #ifndef BUILD_GUI
 int main(void) {
-    // OpenSSL 활성화 여부 확인 (런타임 체크)
-    // crypto_random_bytes가 호출되면 자동으로 OpenSSL을 로드 시도함
-    uint8_t test_buf[1];
-    if (crypto_random_bytes(test_buf, 1) == CRYPTO_SUCCESS) {
-        printf("OpenSSL enabled (loaded at runtime)\n");
-    } else {
-        printf("OpenSSL not available (will use fallback rand())\n");
-    }
+    // OpenSSL 활성화 여부 확인
+#ifdef USE_OPENSSL
+    printf("OpenSSL enabled\n");
+#else
+    printf("OpenSSL disabled\n");
+#endif
     
     // 시드 초기화 (프로그램 시작 시 한 번만)
     srand((unsigned int)time(NULL));
