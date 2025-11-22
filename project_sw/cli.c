@@ -19,10 +19,10 @@
 #endif
 #endif
 
-// Ã»Å© Å©±â Á¤ÀÇ (64KB)
+// ì²­í¬ í¬ê¸° ì •ì˜ (64KB)
 #define FILE_CHUNK_SIZE (64 * 1024)
 
-// ÆĞ½º¿öµå °ËÁõ (¿µ¹®+¼ıÀÚ, ´ë¼Ò¹®ÀÚ, ÃÖ´ë 10ÀÚ)
+// íŒ¨ìŠ¤ì›Œë“œ ê²€ì¦ (ì˜ë¬¸+ìˆ«ì, ëŒ€ì†Œë¬¸ì, ìµœëŒ€ 10ì)
 int validate_password(const char* password) {
     if (!password) return 0;
     size_t len = strlen(password);
@@ -39,44 +39,44 @@ int validate_password(const char* password) {
     return 1;
 }
 
-// Å° µµÃâ: KDF -> SHA512 -> AES Å° + HMAC Å°
+// í‚¤ ë„ì¶œ: KDF -> SHA512 -> AES í‚¤ + HMAC í‚¤
 void derive_keys(const char* password, int aes_key_bits, 
                  uint8_t* aes_key, uint8_t* hmac_key) {
-    // 1. ÆĞ½º¿öµå¸¦ KDF¸¦ ÅëÇØ¼­ SHA512 ÀÔ·ÂÀ¸·Î º¯È¯
+    // 1. íŒ¨ìŠ¤ì›Œë“œë¥¼ KDFë¥¼ í†µí•´ì„œ SHA512 ì…ë ¥ìœ¼ë¡œ ë³€í™˜
     uint8_t kdf_output[64];
     pbkdf2_sha512((const uint8_t*)password, strlen(password),
                   NULL, 0, 10000, kdf_output, 64);
     
-    // 2. KDF Ãâ·ÂÀ» SHA512 ÀÔ·ÂÀ¸·Î »ç¿ëÇÏ¿© ÇØ½Ì
+    // 2. KDF ì¶œë ¥ì„ SHA512 ì…ë ¥ìœ¼ë¡œ ì‚¬ìš©í•˜ì—¬ í•´ì‹±
     SHA512_CTX ctx;
     sha512_init(&ctx);
     sha512_update(&ctx, kdf_output, 64);
     uint8_t sha512_output[64];
     sha512_final(&ctx, sha512_output);
     
-    // 3. SHA512 Ãâ·Â¿¡¼­ ¾ÕÀÇ n¹ÙÀÌÆ®¸¦ AES Å°·Î
+    // 3. SHA512 ì¶œë ¥ì—ì„œ ì•ì˜ në°”ì´íŠ¸ë¥¼ AES í‚¤ë¡œ
     int aes_key_bytes = aes_key_bits / 8;
     memcpy(aes_key, sha512_output, aes_key_bytes);
     
-    // 4. SHA512 Ãâ·Â¿¡¼­ µÚÀÇ 192ºñÆ®(24¹ÙÀÌÆ®)¸¦ HMAC Å°·Î
+    // 4. SHA512 ì¶œë ¥ì—ì„œ ë’¤ì˜ 192ë¹„íŠ¸(24ë°”ì´íŠ¸)ë¥¼ HMAC í‚¤ë¡œ
     memcpy(hmac_key, sha512_output + (64 - 24), 24);
 }
 
-// ·£´ı nonce »ı¼º (OpenSSL RAND_bytes »ç¿ë)
+// ëœë¤ nonce ìƒì„± (OpenSSL RAND_bytes ì‚¬ìš©)
 int generate_nonce(uint8_t* nonce, size_t len) {
     if (crypto_random_bytes(nonce, len) == CRYPTO_SUCCESS) {
         return 1;
     }
-    // OpenSSLÀÌ ¾ø´Â °æ¿ì fallback (º¸¾È»ó ±ÇÀåÇÏÁö ¾ÊÀ½)
+    // OpenSSLì´ ì—†ëŠ” ê²½ìš° fallback (ë³´ì•ˆìƒ ê¶Œì¥í•˜ì§€ ì•ŠìŒ)
     srand((unsigned int)time(NULL));
     for (size_t i = 0; i < len; i++) {
         nonce[i] = (uint8_t)(rand() & 0xFF);
     }
-    return 0; // fallback »ç¿ëµÊÀ» Ç¥½Ã
+    return 0; // fallback ì‚¬ìš©ë¨ì„ í‘œì‹œ
 }
 
-// ÆÄÀÏ °æ·Î¿¡¼­ È®ÀåÀÚ ÃßÃâ (¿¹: "file.txt" -> ".txt")
-// È®ÀåÀÚ°¡ ¾øÀ¸¸é ºó ¹®ÀÚ¿­ ¹İÈ¯
+// íŒŒì¼ ê²½ë¡œì—ì„œ í™•ì¥ì ì¶”ì¶œ (ì˜ˆ: "file.txt" -> ".txt")
+// í™•ì¥ìê°€ ì—†ìœ¼ë©´ ë¹ˆ ë¬¸ìì—´ ë°˜í™˜
 void extract_extension(const char* file_path, char* ext, size_t ext_size) {
     if (!file_path || !ext || ext_size == 0) {
         if (ext && ext_size > 0) ext[0] = '\0';
@@ -105,14 +105,14 @@ void extract_extension(const char* file_path, char* ext, size_t ext_size) {
     }
 }
 
-// ÁøÇà·ü Ç¥½Ã ÇÔ¼ö
+// ì§„í–‰ë¥  í‘œì‹œ í•¨ìˆ˜
 static void print_progress(long processed, long total, const char* operation) {
     if (total <= 0) return;
     
     double percent = (double)processed / total * 100.0;
     if (percent > 100.0) percent = 100.0;
     
-    // Progress bar ±æÀÌ (50ÀÚ)
+    // Progress bar ê¸¸ì´ (50ì)
     int bar_width = 50;
     int filled = (int)(percent / 100.0 * bar_width);
     
@@ -130,17 +130,17 @@ static void print_progress(long processed, long total, const char* operation) {
     fflush(stdout);
 }
 
-// ³»ºÎ ±¸Çö ÇÔ¼ö (Äİ¹é Áö¿ø)
+// ë‚´ë¶€ êµ¬í˜„ í•¨ìˆ˜ (ì½œë°± ì§€ì›)
 static int encrypt_file_internal(const char* input_path, const char* output_path,
                                  int aes_key_bits, const char* password,
                                  progress_callback_t progress_cb, void* user_data) {
     FILE* fin = platform_fopen(input_path, "rb");
     if (!fin) {
-        if (!progress_cb) printf("¿À·ù: ÆÄÀÏÀ» ¿­ ¼ö ¾ø½À´Ï´Ù: %s\n", input_path);
+        if (!progress_cb) printf("ì˜¤ë¥˜: íŒŒì¼ì„ ì—´ ìˆ˜ ì—†ìŠµë‹ˆë‹¤: %s\n", input_path);
         return 0;
     }
     
-    // ÆÄÀÏ Å©±â È®ÀÎ
+    // íŒŒì¼ í¬ê¸° í™•ì¸
     fseek(fin, 0, SEEK_END);
     long file_size = ftell(fin);
     fseek(fin, 0, SEEK_SET);
@@ -150,41 +150,41 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
         return 0;
     }
     
-    if (!progress_cb) printf("¾ÏÈ£È­ Áß...\n");
+    if (!progress_cb) printf("ì•”í˜¸í™” ì¤‘...\n");
     
-    // Å° µµÃâ
+    // í‚¤ ë„ì¶œ
     uint8_t aes_key[32];
     uint8_t hmac_key[24];
     derive_keys(password, aes_key_bits, aes_key, hmac_key);
     
-    // AES ÄÁÅØ½ºÆ® ¼³Á¤
+    // AES ì»¨í…ìŠ¤íŠ¸ ì„¤ì •
     AES_CTX aes_ctx;
     if (AES_set_key(&aes_ctx, aes_key, aes_key_bits) != CRYPTO_SUCCESS) {
         fclose(fin);
         return 0;
     }
     
-    // Nonce »ı¼º
+    // Nonce ìƒì„±
     uint8_t nonce[8];
     generate_nonce(nonce, 8);
     
-    // CTR ¸ğµå¿ë nonce_counter (8¹ÙÀÌÆ® nonce + 8¹ÙÀÌÆ® Ä«¿îÅÍ)
+    // CTR ëª¨ë“œìš© nonce_counter (8ë°”ì´íŠ¸ nonce + 8ë°”ì´íŠ¸ ì¹´ìš´í„°)
     uint8_t nonce_counter[16];
     memcpy(nonce_counter, nonce, 8);
     memset(nonce_counter + 8, 0, 8);
     
-    // HMAC ÃÊ±âÈ­
+    // HMAC ì´ˆê¸°í™”
     HMAC_SHA512_CTX hmac_ctx;
     hmac_sha512_init(&hmac_ctx, hmac_key, 24);
-    hmac_sha512_update(&hmac_ctx, nonce, 8);  // nonce¸¦ HMAC¿¡ Æ÷ÇÔ
+    hmac_sha512_update(&hmac_ctx, nonce, 8);  // nonceë¥¼ HMACì— í¬í•¨
     
-    // ¿øº» ÆÄÀÏ È®ÀåÀÚ ÃßÃâ ¹× Çì´õ¿¡ ÀúÀå
+    // ì›ë³¸ íŒŒì¼ í™•ì¥ì ì¶”ì¶œ ë° í—¤ë”ì— ì €ì¥
     char original_ext[16];
     extract_extension(input_path, original_ext, sizeof(original_ext));
     size_t ext_len = strlen(original_ext);
-    if (ext_len > 7) ext_len = 7; // ÃÖ´ë 7¹ÙÀÌÆ® (format[8]¿¡ ³Î Á¾·á ¹®ÀÚ °ø°£ È®º¸)
+    if (ext_len > 7) ext_len = 7; // ìµœëŒ€ 7ë°”ì´íŠ¸ (format[8]ì— ë„ ì¢…ë£Œ ë¬¸ì ê³µê°„ í™•ë³´)
     
-    // Çì´õ ÀÛ¼º
+    // í—¤ë” ì‘ì„±
     EncFileHeader header;
     memcpy(header.signature, ENC_SIGNATURE, 4);
     header.version = ENC_VERSION;
@@ -194,50 +194,50 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
     header.hmac_enabled = ENC_HMAC_ENABLED;
     memcpy(header.nonce, nonce, 8);
     memset(header.format, 0, 8);
-    // format¿¡ È®ÀåÀÚ ¹®ÀÚ¿­ ÀúÀå (¿¹: ".hwp", ".png", ".jpeg", ".txt")
+    // formatì— í™•ì¥ì ë¬¸ìì—´ ì €ì¥ (ì˜ˆ: ".hwp", ".png", ".jpeg", ".txt")
     if (ext_len > 0) {
         memcpy(header.format, original_ext, ext_len);
     }
     memset(header.reserved, 0, 16);
     
-    // Ãâ·Â ÆÄÀÏ ÀÛ¼º
+    // ì¶œë ¥ íŒŒì¼ ì‘ì„±
     FILE* fout = platform_fopen(output_path, "wb");
     if (!fout) {
         fclose(fin);
         return 0;
     }
     
-    // Çì´õ ¸ÕÀú ¾²±â
+    // í—¤ë” ë¨¼ì € ì“°ê¸°
     fwrite(&header, 1, sizeof(header), fout);
     
-    // Ã»Å© ´ÜÀ§·Î ÆÄÀÏ ÀĞ±â, ¾ÏÈ£È­, ¾²±â
+    // ì²­í¬ ë‹¨ìœ„ë¡œ íŒŒì¼ ì½ê¸°, ì•”í˜¸í™”, ì“°ê¸°
     uint8_t buffer[FILE_CHUNK_SIZE];
     size_t bytes_read;
     long total_processed = 0;
     int success = 1;
     
     while ((bytes_read = fread(buffer, 1, FILE_CHUNK_SIZE, fin)) > 0) {
-        // Ã»Å© ¾ÏÈ£È­ (in-place)
+        // ì²­í¬ ì•”í˜¸í™” (in-place)
         if (AES_CTR_crypt(&aes_ctx, buffer, bytes_read, buffer, nonce_counter) != CRYPTO_SUCCESS) {
             success = 0;
             break;
         }
         
-        // HMAC ¾÷µ¥ÀÌÆ® (¾ÏÈ£¹®¿¡ ´ëÇØ)
+        // HMAC ì—…ë°ì´íŠ¸ (ì•”í˜¸ë¬¸ì— ëŒ€í•´)
         hmac_sha512_update(&hmac_ctx, buffer, bytes_read);
         
-        // ¾ÏÈ£¹® ¾²±â
+        // ì•”í˜¸ë¬¸ ì“°ê¸°
         if (fwrite(buffer, 1, bytes_read, fout) != bytes_read) {
             success = 0;
             break;
         }
         
-        // ÁøÇà·ü ¾÷µ¥ÀÌÆ® - Äİ¹éÀÌ ÀÖÀ¸¸é Äİ¹é, ¾øÀ¸¸é print_progress
+        // ì§„í–‰ë¥  ì—…ë°ì´íŠ¸ - ì½œë°±ì´ ìˆìœ¼ë©´ ì½œë°±, ì—†ìœ¼ë©´ print_progress
         total_processed += bytes_read;
         if (progress_cb) {
             progress_cb(total_processed, file_size, user_data);
         } else {
-            print_progress(total_processed, file_size, "¾ÏÈ£È­");
+            print_progress(total_processed, file_size, "ì•”í˜¸í™”");
         }
     }
     
@@ -248,39 +248,39 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
         return 0;
     }
     
-    // HMAC ÃÖÁ¾ °è»ê
+    // HMAC ìµœì¢… ê³„ì‚°
     uint8_t hmac[64];
     hmac_sha512_final(&hmac_ctx, hmac);
     
-    // HMAC ¾²±â
+    // HMAC ì“°ê¸°
     fwrite(hmac, 1, 64, fout);
     fclose(fout);
     
-    // ÁøÇà·ü ¿Ï·á Ç¥½Ã
+    // ì§„í–‰ë¥  ì™„ë£Œ í‘œì‹œ
     if (progress_cb) {
         progress_cb(file_size, file_size, user_data);
     } else {
-        print_progress(file_size, file_size, "¾ÏÈ£È­");
-        printf("\n¾ÏÈ£È­ ¿Ï·á!\n");
+        print_progress(file_size, file_size, "ì•”í˜¸í™”");
+        printf("\nì•”í˜¸í™” ì™„ë£Œ!\n");
     }
     
     return 1;
 }
 
-// ±âÁ¸ ÇÔ¼ö (CLI¿ë - ³»ºÎ ÇÔ¼ö¸¦ NULL Äİ¹éÀ¸·Î È£Ãâ)
+// ê¸°ì¡´ í•¨ìˆ˜ (CLIìš© - ë‚´ë¶€ í•¨ìˆ˜ë¥¼ NULL ì½œë°±ìœ¼ë¡œ í˜¸ì¶œ)
 int encrypt_file(const char* input_path, const char* output_path,
                  int aes_key_bits, const char* password) {
     return encrypt_file_internal(input_path, output_path, aes_key_bits, password, NULL, NULL);
 }
 
-// »õ ÇÔ¼ö (GUI¿ë - ÁøÇà·ü Äİ¹é Áö¿ø)
+// ìƒˆ í•¨ìˆ˜ (GUIìš© - ì§„í–‰ë¥  ì½œë°± ì§€ì›)
 int encrypt_file_with_progress(const char* input_path, const char* output_path,
                                int aes_key_bits, const char* password,
                                progress_callback_t progress_cb, void* user_data) {
     return encrypt_file_internal(input_path, output_path, aes_key_bits, password, progress_cb, user_data);
 }
 
-// Çì´õ¿¡¼­ AES Å° ±æÀÌ ÀĞ±â (º¹È£È­ Àü È®ÀÎ¿ë)
+// í—¤ë”ì—ì„œ AES í‚¤ ê¸¸ì´ ì½ê¸° (ë³µí˜¸í™” ì „ í™•ì¸ìš©)
 int read_aes_key_length(const char* input_path) {
     FILE* fin = platform_fopen(input_path, "rb");
     if (!fin) {
@@ -295,92 +295,92 @@ int read_aes_key_length(const char* input_path) {
     
     fclose(fin);
     
-    // ½Ã±×´ÏÃ³ °ËÁõ
+    // ì‹œê·¸ë‹ˆì²˜ ê²€ì¦
     if (memcmp(header.signature, ENC_SIGNATURE, 4) != 0) {
         return 0;
     }
     
-    // Å° ±æÀÌ ÄÚµå¿¡¼­ ½ÇÁ¦ Å° ±æÀÌ ¹İÈ¯
+    // í‚¤ ê¸¸ì´ ì½”ë“œì—ì„œ ì‹¤ì œ í‚¤ ê¸¸ì´ ë°˜í™˜
     if (header.key_length_code == 0x01) return 128;
     else if (header.key_length_code == 0x02) return 192;
     else if (header.key_length_code == 0x03) return 256;
     else return 0;
 }
 
-// ÆÄÀÏ º¹È£È­ (½ºÆ®¸®¹Ö ¹æ½Ä)
-// ½ÇÁ¦ ÀúÀåµÈ ÆÄÀÏ °æ·Î¸¦ final_output_path¿¡ ÀúÀå
+// íŒŒì¼ ë³µí˜¸í™” (ìŠ¤íŠ¸ë¦¬ë° ë°©ì‹)
+// ì‹¤ì œ ì €ì¥ëœ íŒŒì¼ ê²½ë¡œë¥¼ final_output_pathì— ì €ì¥
 int decrypt_file(const char* input_path, const char* output_path,
                  const char* password, char* final_output_path, size_t final_path_size) {
     FILE* fin = platform_fopen(input_path, "rb");
     if (!fin) {
-        printf("¿À·ù: ÆÄÀÏÀ» ¿­ ¼ö ¾ø½À´Ï´Ù: %s\n", input_path);
+        printf("ì˜¤ë¥˜: íŒŒì¼ì„ ì—´ ìˆ˜ ì—†ìŠµë‹ˆë‹¤: %s\n", input_path);
         return 0;
     }
     
-    // Çì´õ ÀĞ±â
+    // í—¤ë” ì½ê¸°
     EncFileHeader header;
     if (fread(&header, 1, sizeof(header), fin) != sizeof(header)) {
         fclose(fin);
-        printf("¿À·ù: ÆÄÀÏ Çì´õ¸¦ ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+        printf("ì˜¤ë¥˜: íŒŒì¼ í—¤ë”ë¥¼ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
         return 0;
     }
     
-    // ½Ã±×´ÏÃ³ °ËÁõ
+    // ì‹œê·¸ë‹ˆì²˜ ê²€ì¦
     if (memcmp(header.signature, ENC_SIGNATURE, 4) != 0) {
         fclose(fin);
-        printf("¿À·ù: Àß¸øµÈ ÆÄÀÏ Çü½ÄÀÔ´Ï´Ù.\n");
+        printf("ì˜¤ë¥˜: ì˜ëª»ëœ íŒŒì¼ í˜•ì‹ì…ë‹ˆë‹¤.\n");
         return 0;
     }
     
-    // ÆÄÀÏ Å©±â È®ÀÎ
+    // íŒŒì¼ í¬ê¸° í™•ì¸
     fseek(fin, 0, SEEK_END);
     long file_size = ftell(fin);
     fseek(fin, sizeof(header), SEEK_SET);
     
-    long ciphertext_size = file_size - sizeof(header) - 64; // Çì´õ¿Í HMAC Á¦¿Ü
+    long ciphertext_size = file_size - sizeof(header) - 64; // í—¤ë”ì™€ HMAC ì œì™¸
     
     if (ciphertext_size <= 0) {
         fclose(fin);
-        printf("¿À·ù: Àß¸øµÈ ÆÄÀÏ Å©±âÀÔ´Ï´Ù.\n");
+        printf("ì˜¤ë¥˜: ì˜ëª»ëœ íŒŒì¼ í¬ê¸°ì…ë‹ˆë‹¤.\n");
         return 0;
     }
     
-    // HMAC À§Ä¡·Î ÀÌµ¿ÇÏ¿© ÀĞ±â
+    // HMAC ìœ„ì¹˜ë¡œ ì´ë™í•˜ì—¬ ì½ê¸°
     fseek(fin, file_size - 64, SEEK_SET);
     uint8_t stored_hmac[64];
     if (fread(stored_hmac, 1, 64, fin) != 64) {
         fclose(fin);
-        printf("¿À·ù: HMAC¸¦ ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+        printf("ì˜¤ë¥˜: HMACë¥¼ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
         return 0;
     }
     
-    // AES Å° ±æÀÌ °áÁ¤
+    // AES í‚¤ ê¸¸ì´ ê²°ì •
     int aes_key_bits;
     if (header.key_length_code == 0x01) aes_key_bits = 128;
     else if (header.key_length_code == 0x02) aes_key_bits = 192;
     else if (header.key_length_code == 0x03) aes_key_bits = 256;
     else {
         fclose(fin);
-        printf("¿À·ù: Áö¿øÇÏÁö ¾Ê´Â AES Å° ±æÀÌÀÔ´Ï´Ù.\n");
+        printf("ì˜¤ë¥˜: ì§€ì›í•˜ì§€ ì•ŠëŠ” AES í‚¤ ê¸¸ì´ì…ë‹ˆë‹¤.\n");
         return 0;
     }
     
-    // Å° µµÃâ
+    // í‚¤ ë„ì¶œ
     uint8_t aes_key[32];
     uint8_t hmac_key[24];
     derive_keys(password, aes_key_bits, aes_key, hmac_key);
     
-    printf("HMAC °ËÁõ Áß...\n");
+    printf("HMAC ê²€ì¦ ì¤‘...\n");
     
-    // HMAC °ËÁõÀ» À§ÇÑ ÃÊ±âÈ­
+    // HMAC ê²€ì¦ì„ ìœ„í•œ ì´ˆê¸°í™”
     HMAC_SHA512_CTX hmac_ctx;
     hmac_sha512_init(&hmac_ctx, hmac_key, 24);
     hmac_sha512_update(&hmac_ctx, header.nonce, 8);
     
-    // ¾ÏÈ£¹® À§Ä¡·Î ´Ù½Ã ÀÌµ¿
+    // ì•”í˜¸ë¬¸ ìœ„ì¹˜ë¡œ ë‹¤ì‹œ ì´ë™
     fseek(fin, sizeof(header), SEEK_SET);
     
-    // HMAC °ËÁõÀ» À§ÇØ ¾ÏÈ£¹®À» ÀĞÀ¸¸é¼­ HMAC °è»ê
+    // HMAC ê²€ì¦ì„ ìœ„í•´ ì•”í˜¸ë¬¸ì„ ì½ìœ¼ë©´ì„œ HMAC ê³„ì‚°
     uint8_t buffer[FILE_CHUNK_SIZE];
     size_t bytes_read;
     long total_read = 0;
@@ -391,55 +391,55 @@ int decrypt_file(const char* input_path, const char* output_path,
         bytes_read = fread(buffer, 1, to_read, fin);
         if (bytes_read == 0) break;
         
-        // HMAC ¾÷µ¥ÀÌÆ®
+        // HMAC ì—…ë°ì´íŠ¸
         hmac_sha512_update(&hmac_ctx, buffer, bytes_read);
         total_read += bytes_read;
         
-        // ÁøÇà·ü ¾÷µ¥ÀÌÆ®
-        print_progress(total_read, ciphertext_size, "HMAC °ËÁõ");
+        // ì§„í–‰ë¥  ì—…ë°ì´íŠ¸
+        print_progress(total_read, ciphertext_size, "HMAC ê²€ì¦");
     }
     
-    // HMAC ÃÖÁ¾ °è»ê ¹× °ËÁõ
+    // HMAC ìµœì¢… ê³„ì‚° ë° ê²€ì¦
     uint8_t computed_hmac[64];
     hmac_sha512_final(&hmac_ctx, computed_hmac);
     
-    // HMAC °ËÁõ ¿Ï·á Ç¥½Ã
-    print_progress(ciphertext_size, ciphertext_size, "HMAC °ËÁõ");
+    // HMAC ê²€ì¦ ì™„ë£Œ í‘œì‹œ
+    print_progress(ciphertext_size, ciphertext_size, "HMAC ê²€ì¦");
     printf("\n");
     
     if (memcmp(stored_hmac, computed_hmac, 64) != 0) {
         fclose(fin);
-        printf("¿À·ù: HMAC ¹«°á¼º °ËÁõ ½ÇÆĞ. ÆÄÀÏÀÌ ¼Õ»óµÇ¾ú°Å³ª ÆĞ½º¿öµå°¡ Àß¸øµÇ¾ú½À´Ï´Ù.\n");
+        printf("ì˜¤ë¥˜: HMAC ë¬´ê²°ì„± ê²€ì¦ ì‹¤íŒ¨. íŒŒì¼ì´ ì†ìƒë˜ì—ˆê±°ë‚˜ íŒ¨ìŠ¤ì›Œë“œê°€ ì˜ëª»ë˜ì—ˆìŠµë‹ˆë‹¤.\n");
         return 0;
     }
     
-    printf("HMAC °ËÁõ ¼º°ø! º¹È£È­ Áß...\n");
+    printf("HMAC ê²€ì¦ ì„±ê³µ! ë³µí˜¸í™” ì¤‘...\n");
     
-    // AES ÄÁÅØ½ºÆ® ¼³Á¤
+    // AES ì»¨í…ìŠ¤íŠ¸ ì„¤ì •
     AES_CTX aes_ctx;
     if (AES_set_key(&aes_ctx, aes_key, aes_key_bits) != CRYPTO_SUCCESS) {
         fclose(fin);
         return 0;
     }
     
-    // CTR ¸ğµå¿ë nonce_counter
+    // CTR ëª¨ë“œìš© nonce_counter
     uint8_t nonce_counter[16];
     memcpy(nonce_counter, header.nonce, 8);
     memset(nonce_counter + 8, 0, 8);
     
-    // Çì´õ¿¡¼­ ¿øº» È®ÀåÀÚ ÀĞ±â
+    // í—¤ë”ì—ì„œ ì›ë³¸ í™•ì¥ì ì½ê¸°
     char format_ext[16] = {0};
     strncpy(format_ext, (const char*)header.format, 8);
     format_ext[8] = '\0';
     size_t ext_len = strlen(format_ext);
     
-    // Ãâ·Â ÆÄÀÏ °æ·Î¿¡ È®ÀåÀÚ Ãß°¡
+    // ì¶œë ¥ íŒŒì¼ ê²½ë¡œì— í™•ì¥ì ì¶”ê°€
     char actual_output_path[512];
     strncpy(actual_output_path, output_path, sizeof(actual_output_path) - 1);
     actual_output_path[sizeof(actual_output_path) - 1] = '\0';
     
     if (ext_len > 0) {
-        // Ãâ·Â °æ·Î¿¡ È®ÀåÀÚ°¡ ¾øÀ¸¸é Ãß°¡
+        // ì¶œë ¥ ê²½ë¡œì— í™•ì¥ìê°€ ì—†ìœ¼ë©´ ì¶”ê°€
         char* last_dot = strrchr(actual_output_path, '.');
         char* last_slash = strrchr(actual_output_path, '/');
 #ifdef _WIN32
@@ -449,7 +449,7 @@ int decrypt_file(const char* input_path, const char* output_path,
         }
 #endif
         if (!last_dot || (last_slash && last_dot < last_slash)) {
-            // È®ÀåÀÚ°¡ ¾øÀ¸¸é Ãß°¡
+            // í™•ì¥ìê°€ ì—†ìœ¼ë©´ ì¶”ê°€
             size_t path_len = strlen(actual_output_path);
             if (path_len + ext_len < sizeof(actual_output_path)) {
                 strncpy(actual_output_path + path_len, format_ext, ext_len);
@@ -458,23 +458,23 @@ int decrypt_file(const char* input_path, const char* output_path,
         }
     }
     
-    // ½ÇÁ¦ ÀúÀåµÈ ÆÄÀÏ °æ·Î¸¦ ¹İÈ¯
+    // ì‹¤ì œ ì €ì¥ëœ íŒŒì¼ ê²½ë¡œë¥¼ ë°˜í™˜
     if (final_output_path && final_path_size > 0) {
         strncpy(final_output_path, actual_output_path, final_path_size - 1);
         final_output_path[final_path_size - 1] = '\0';
     }
     
-    // Ãâ·Â ÆÄÀÏ ÀÛ¼º
+    // ì¶œë ¥ íŒŒì¼ ì‘ì„±
     FILE* fout = platform_fopen(actual_output_path, "wb");
     if (!fout) {
         fclose(fin);
         return 0;
     }
     
-    // º¹È£È­¸¦ À§ÇØ ´Ù½Ã ¾ÏÈ£¹® À§Ä¡·Î ÀÌµ¿
+    // ë³µí˜¸í™”ë¥¼ ìœ„í•´ ë‹¤ì‹œ ì•”í˜¸ë¬¸ ìœ„ì¹˜ë¡œ ì´ë™
     fseek(fin, sizeof(header), SEEK_SET);
     
-    // Ã»Å© ´ÜÀ§·Î ÀĞ±â, º¹È£È­, ¾²±â
+    // ì²­í¬ ë‹¨ìœ„ë¡œ ì½ê¸°, ë³µí˜¸í™”, ì“°ê¸°
     total_read = 0;
     int success = 1;
     
@@ -484,13 +484,13 @@ int decrypt_file(const char* input_path, const char* output_path,
         bytes_read = fread(buffer, 1, to_read, fin);
         if (bytes_read == 0) break;
         
-        // Ã»Å© º¹È£È­ (in-place)
+        // ì²­í¬ ë³µí˜¸í™” (in-place)
         if (AES_CTR_crypt(&aes_ctx, buffer, bytes_read, buffer, nonce_counter) != CRYPTO_SUCCESS) {
             success = 0;
             break;
         }
         
-        // Æò¹® ¾²±â
+        // í‰ë¬¸ ì“°ê¸°
         if (fwrite(buffer, 1, bytes_read, fout) != bytes_read) {
             success = 0;
             break;
@@ -498,25 +498,25 @@ int decrypt_file(const char* input_path, const char* output_path,
         
         total_read += bytes_read;
         
-        // ÁøÇà·ü ¾÷µ¥ÀÌÆ®
-        print_progress(total_read, ciphertext_size, "º¹È£È­");
+        // ì§„í–‰ë¥  ì—…ë°ì´íŠ¸
+        print_progress(total_read, ciphertext_size, "ë³µí˜¸í™”");
     }
     
     fclose(fin);
     
     if (!success) {
         fclose(fout);
-        // ½ÇÆĞ ½Ã Ãâ·Â ÆÄÀÏ »èÁ¦
+        // ì‹¤íŒ¨ ì‹œ ì¶œë ¥ íŒŒì¼ ì‚­ì œ
         remove(actual_output_path);
-        printf("\nº¹È£È­ ½ÇÆĞ!\n");
+        printf("\në³µí˜¸í™” ì‹¤íŒ¨!\n");
         return 0;
     }
     
     fclose(fout);
     
-    // ÁøÇà·ü ¿Ï·á Ç¥½Ã
-    print_progress(ciphertext_size, ciphertext_size, "º¹È£È­");
-    printf("\nº¹È£È­ ¿Ï·á!\n");
+    // ì§„í–‰ë¥  ì™„ë£Œ í‘œì‹œ
+    print_progress(ciphertext_size, ciphertext_size, "ë³µí˜¸í™”");
+    printf("\në³µí˜¸í™” ì™„ë£Œ!\n");
     
     return 1;
 }
@@ -530,73 +530,73 @@ int main(void) {
     int aes_key_bits;
     
     printf("=======================================\n");
-    printf("       ÆÄÀÏ ¾ÏÈ£È­/º¹È£È­ ÇÁ·Î±×·¥      \n");
+    printf("       íŒŒì¼ ì•”í˜¸í™”/ë³µí˜¸í™” í”„ë¡œê·¸ë¨      \n");
     printf("=======================================\n\n");
     
-    // ¼­ºñ½º ¼±ÅÃ
-    printf("ÀÌ¿ëÇÏ½Ç ¼­ºñ½º ¹øÈ£¸¦ ÀÔ·ÂÇÏ¼¼¿ä:\n");
-    printf("1. ÆÄÀÏ ¾ÏÈ£È­\n");
-    printf("2. ÆÄÀÏ º¹È£È­\n");
-    printf("¼±ÅÃ: ");
+    // ì„œë¹„ìŠ¤ ì„ íƒ
+    printf("ì´ìš©í•˜ì‹¤ ì„œë¹„ìŠ¤ ë²ˆí˜¸ë¥¼ ì…ë ¥í•˜ì„¸ìš”:\n");
+    printf("1. íŒŒì¼ ì•”í˜¸í™”\n");
+    printf("2. íŒŒì¼ ë³µí˜¸í™”\n");
+    printf("ì„ íƒ: ");
     
     if (scanf("%d", &service) != 1 || (service != 1 && service != 2)) {
-        printf("¿À·ù: Àß¸øµÈ ÀÔ·ÂÀÔ´Ï´Ù.\n");
+        printf("ì˜¤ë¥˜: ì˜ëª»ëœ ì…ë ¥ì…ë‹ˆë‹¤.\n");
         return 1;
     }
     
     if (service == 1) {
-        // ¾ÏÈ£È­
-        printf("\n¾ÏÈ£È­ÇÒ ÆÄÀÏ °æ·Î¸¦ ÀÔ·ÂÇÏ¼¼¿ä: ");
+        // ì•”í˜¸í™”
+        printf("\nì•”í˜¸í™”í•  íŒŒì¼ ê²½ë¡œë¥¼ ì…ë ¥í•˜ì„¸ìš”: ");
         if (scanf("%511s", file_path) != 1) {
-            printf("¿À·ù: ÆÄÀÏ °æ·Î¸¦ ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒŒì¼ ê²½ë¡œë¥¼ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
-        printf("\nÆÄÀÏÀ» ¾ÏÈ£È­ÇÒ AES¸¦ ÀÔ·ÂÇÏ¼¼¿ä:\n");
+        printf("\níŒŒì¼ì„ ì•”í˜¸í™”í•  AESë¥¼ ì…ë ¥í•˜ì„¸ìš”:\n");
         printf("1. AES-128\n");
         printf("2. AES-192\n");
         printf("3. AES-256\n");
-        printf("¼±ÅÃ: ");
+        printf("ì„ íƒ: ");
         
         if (scanf("%d", &aes_choice) != 1 || aes_choice < 1 || aes_choice > 3) {
-            printf("¿À·ù: Àß¸øµÈ ¼±ÅÃÀÔ´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: ì˜ëª»ëœ ì„ íƒì…ë‹ˆë‹¤.\n");
             return 1;
         }
         
         aes_key_bits = (aes_choice == 1) ? 128 : (aes_choice == 2) ? 192 : 256;
-        printf("\nAES-%d-CTR·Î ÆÄÀÏ ¾ÏÈ£È­¸¦ ½ÃÀÛÇÕ´Ï´Ù.\n", aes_key_bits);
+        printf("\nAES-%d-CTRë¡œ íŒŒì¼ ì•”í˜¸í™”ë¥¼ ì‹œì‘í•©ë‹ˆë‹¤.\n", aes_key_bits);
         
-        printf("ÆĞ½º¿öµå¸¦ ÀÔ·ÂÇÏ¼¼¿ä (¿µ¹®+¼ıÀÚ (´ë¼Ò¹®ÀÚ) ÃÖ´ë 10ÀÚ): ");
+        printf("íŒ¨ìŠ¤ì›Œë“œë¥¼ ì…ë ¥í•˜ì„¸ìš” (ì˜ë¬¸+ìˆ«ì (ëŒ€ì†Œë¬¸ì) ìµœëŒ€ 10ì): ");
         if (scanf("%31s", password) != 1) {
-            printf("¿À·ù: ÆĞ½º¿öµå¸¦ ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒ¨ìŠ¤ì›Œë“œë¥¼ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
         if (!validate_password(password)) {
-            printf("¿À·ù: ÆĞ½º¿öµå´Â ¿µ¹®+¼ıÀÚ (´ë¼Ò¹®ÀÚ) ÃÖ´ë 10ÀÚ¿©¾ß ÇÕ´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒ¨ìŠ¤ì›Œë“œëŠ” ì˜ë¬¸+ìˆ«ì (ëŒ€ì†Œë¬¸ì) ìµœëŒ€ 10ìì—¬ì•¼ í•©ë‹ˆë‹¤.\n");
             return 1;
         }
         
-        // ÀúÀåÇÒ °æ·Î ÀÔ·Â
+        // ì €ì¥í•  ê²½ë¡œ ì…ë ¥
         char save_path[512];
-        printf("¾ÏÈ£È­µÈ ÆÄÀÏÀ» ÀúÀåÇÒ °æ·Î¸¦ ÀÔ·ÂÇÏ¼¼¿ä: ");
+        printf("ì•”í˜¸í™”ëœ íŒŒì¼ì„ ì €ì¥í•  ê²½ë¡œë¥¼ ì…ë ¥í•˜ì„¸ìš”: ");
         if (scanf("%511s", save_path) != 1) {
-            printf("¿À·ù: ÀúÀå °æ·Î¸¦ ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: ì €ì¥ ê²½ë¡œë¥¼ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
-        // ÆÄÀÏ ÀÌ¸§ ÀÔ·Â
+        // íŒŒì¼ ì´ë¦„ ì…ë ¥
         char file_name[256];
-        printf("¾ÏÈ£È­µÈ ÆÄÀÏ ÀÌ¸§À» ÀÔ·ÂÇÏ¼¼¿ä (È®ÀåÀÚ .enc´Â ÀÚµ¿ Ãß°¡): ");
+        printf("ì•”í˜¸í™”ëœ íŒŒì¼ ì´ë¦„ì„ ì…ë ¥í•˜ì„¸ìš” (í™•ì¥ì .encëŠ” ìë™ ì¶”ê°€): ");
         if (scanf("%255s", file_name) != 1) {
-            printf("¿À·ù: ÆÄÀÏ ÀÌ¸§À» ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒŒì¼ ì´ë¦„ì„ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
-        // ÃÖÁ¾ Ãâ·Â °æ·Î »ı¼º (°æ·Î + ÆÄÀÏ¸í + .enc)
+        // ìµœì¢… ì¶œë ¥ ê²½ë¡œ ìƒì„± (ê²½ë¡œ + íŒŒì¼ëª… + .enc)
         char output_path[512];
         size_t path_len = strlen(save_path);
-        // °æ·Î ³¡¿¡ ±¸ºĞÀÚ°¡ ¾øÀ¸¸é Ãß°¡
+        // ê²½ë¡œ ëì— êµ¬ë¶„ìê°€ ì—†ìœ¼ë©´ ì¶”ê°€
         if (path_len > 0 && save_path[path_len - 1] != '/' && save_path[path_len - 1] != '\\') {
 #ifdef _WIN32
             snprintf(output_path, sizeof(output_path), "%s\\%s.enc", save_path, file_name);
@@ -608,55 +608,55 @@ int main(void) {
         }
         
         if (encrypt_file(file_path, output_path, aes_key_bits, password)) {
-            printf("ÆÄÀÏ ¾ÏÈ£È­¿Í hmac »ı¼º¿¡ ¼º°øÇÏ¿´½À´Ï´Ù.\n");
-            printf("¾ÏÈ£È­µÈ ÆÄÀÏ: %s\n", output_path);
+            printf("íŒŒì¼ ì•”í˜¸í™”ì™€ hmac ìƒì„±ì— ì„±ê³µí•˜ì˜€ìŠµë‹ˆë‹¤.\n");
+            printf("ì•”í˜¸í™”ëœ íŒŒì¼: %s\n", output_path);
         } else {
-            printf("¿À·ù: ÆÄÀÏ ¾ÏÈ£È­¿¡ ½ÇÆĞÇß½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒŒì¼ ì•”í˜¸í™”ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
     } else if (service == 2) {
-        // º¹È£È­
-        printf("\nº¹È£È­ÇÒ ÆÄÀÏ °æ·Î¸¦ ÀÔ·ÂÇÏ¼¼¿ä: ");
+        // ë³µí˜¸í™”
+        printf("\në³µí˜¸í™”í•  íŒŒì¼ ê²½ë¡œë¥¼ ì…ë ¥í•˜ì„¸ìš”: ");
         if (scanf("%511s", file_path) != 1) {
-            printf("¿À·ù: ÆÄÀÏ °æ·Î¸¦ ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒŒì¼ ê²½ë¡œë¥¼ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
-        // Çì´õ¿¡¼­ AES Å° ±æÀÌ ÀĞ±â
+        // í—¤ë”ì—ì„œ AES í‚¤ ê¸¸ì´ ì½ê¸°
         int aes_key_bits = read_aes_key_length(file_path);
         if (aes_key_bits == 0) {
-            printf("¿À·ù: ¾ÏÈ£È­µÈ ÆÄÀÏÀ» ÀĞÀ» ¼ö ¾ø°Å³ª Àß¸øµÈ Çü½ÄÀÔ´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: ì•”í˜¸í™”ëœ íŒŒì¼ì„ ì½ì„ ìˆ˜ ì—†ê±°ë‚˜ ì˜ëª»ëœ í˜•ì‹ì…ë‹ˆë‹¤.\n");
             return 1;
         }
         
-        printf("\nAES-%d-CTR·Î ÆÄÀÏ º¹È£È­¸¦ ½ÃÀÛÇÕ´Ï´Ù.\n", aes_key_bits);
-        printf("¾ÏÈ£È­ ½Ã »ç¿ëÇß´ø ÆĞ½º¿öµå¸¦ ÀÔ·ÂÇÏ¼¼¿ä: ");
+        printf("\nAES-%d-CTRë¡œ íŒŒì¼ ë³µí˜¸í™”ë¥¼ ì‹œì‘í•©ë‹ˆë‹¤.\n", aes_key_bits);
+        printf("ì•”í˜¸í™” ì‹œ ì‚¬ìš©í–ˆë˜ íŒ¨ìŠ¤ì›Œë“œë¥¼ ì…ë ¥í•˜ì„¸ìš”: ");
         if (scanf("%31s", password) != 1) {
-            printf("¿À·ù: ÆĞ½º¿öµå¸¦ ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒ¨ìŠ¤ì›Œë“œë¥¼ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
-        // ÀúÀåÇÒ °æ·Î ÀÔ·Â
+        // ì €ì¥í•  ê²½ë¡œ ì…ë ¥
         char save_path[512];
-        printf("º¹È£È­µÈ ÆÄÀÏÀ» ÀúÀåÇÒ °æ·Î¸¦ ÀÔ·ÂÇÏ¼¼¿ä (ÀúÀåÇÒ ÆÄÀÏ¸í Á¦¿Ü): ");
+        printf("ë³µí˜¸í™”ëœ íŒŒì¼ì„ ì €ì¥í•  ê²½ë¡œë¥¼ ì…ë ¥í•˜ì„¸ìš” (ì €ì¥í•  íŒŒì¼ëª… ì œì™¸): ");
         if (scanf("%511s", save_path) != 1) {
-            printf("¿À·ù: ÀúÀå °æ·Î¸¦ ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: ì €ì¥ ê²½ë¡œë¥¼ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
-        // ÆÄÀÏ ÀÌ¸§ ÀÔ·Â (È®ÀåÀÚ´Â ÀÚµ¿À¸·Î Ãß°¡µÊ)
+        // íŒŒì¼ ì´ë¦„ ì…ë ¥ (í™•ì¥ìëŠ” ìë™ìœ¼ë¡œ ì¶”ê°€ë¨)
         char file_name[256];
-        printf("º¹È£È­µÈ ÆÄÀÏ ÀÌ¸§À» ÀÔ·ÂÇÏ¼¼¿ä (È®ÀåÀÚ´Â ÀÚµ¿ Ãß°¡): ");
+        printf("ë³µí˜¸í™”ëœ íŒŒì¼ ì´ë¦„ì„ ì…ë ¥í•˜ì„¸ìš” (í™•ì¥ìëŠ” ìë™ ì¶”ê°€): ");
         if (scanf("%255s", file_name) != 1) {
-            printf("¿À·ù: ÆÄÀÏ ÀÌ¸§À» ÀĞÀ» ¼ö ¾ø½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒŒì¼ ì´ë¦„ì„ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.\n");
             return 1;
         }
         
-        // ÃÖÁ¾ Ãâ·Â °æ·Î »ı¼º (°æ·Î + ÆÄÀÏ¸í, È®ÀåÀÚ´Â decrypt_file¿¡¼­ Ãß°¡)
+        // ìµœì¢… ì¶œë ¥ ê²½ë¡œ ìƒì„± (ê²½ë¡œ + íŒŒì¼ëª…, í™•ì¥ìëŠ” decrypt_fileì—ì„œ ì¶”ê°€)
         char output_path[512];
         size_t path_len = strlen(save_path);
-        // °æ·Î ³¡¿¡ ±¸ºĞÀÚ°¡ ¾øÀ¸¸é Ãß°¡
+        // ê²½ë¡œ ëì— êµ¬ë¶„ìê°€ ì—†ìœ¼ë©´ ì¶”ê°€
         if (path_len > 0 && save_path[path_len - 1] != '/' && save_path[path_len - 1] != '\\') {
 #ifdef _WIN32
             snprintf(output_path, sizeof(output_path), "%s\\%s", save_path, file_name);
@@ -669,10 +669,10 @@ int main(void) {
         
         char actual_output_path[512];
         if (decrypt_file(file_path, output_path, password, actual_output_path, sizeof(actual_output_path))) {
-            printf("¹«°á¼ºÀÌ °ËÁõµÇ¾ú½À´Ï´Ù. ÆÄÀÏ º¹È£È­¿¡ ¼º°øÇß½À´Ï´Ù.\n");
-            printf("º¹È£È­µÈ ÆÄÀÏ: %s\n", actual_output_path);
+            printf("ë¬´ê²°ì„±ì´ ê²€ì¦ë˜ì—ˆìŠµë‹ˆë‹¤. íŒŒì¼ ë³µí˜¸í™”ì— ì„±ê³µí–ˆìŠµë‹ˆë‹¤.\n");
+            printf("ë³µí˜¸í™”ëœ íŒŒì¼: %s\n", actual_output_path);
         } else {
-            printf("¿À·ù: ÆÄÀÏ º¹È£È­¿¡ ½ÇÆĞÇß½À´Ï´Ù.\n");
+            printf("ì˜¤ë¥˜: íŒŒì¼ ë³µí˜¸í™”ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.\n");
             return 1;
         }
     }
