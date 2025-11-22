@@ -29,12 +29,20 @@ typedef struct {
     uint8_t reserved[16];      // [24:40] Reserved
 } EncFileHeader;
 
+// 진행률 콜백 함수 타입
+typedef void (*progress_callback_t)(long processed, long total, void* user_data);
+
 // 패스워드 검증 (영문+숫자, 대소문자, 최대 10자)
 int validate_password(const char* password);
 
 // 파일 암호화
 int encrypt_file(const char* input_path, const char* output_path,
                  int aes_key_bits, const char* password);
+
+// 파일 암호화 (진행률 콜백 지원)
+int encrypt_file_with_progress(const char* input_path, const char* output_path,
+                               int aes_key_bits, const char* password,
+                               progress_callback_t progress_cb, void* user_data);
 
 // 파일 복호화
 int decrypt_file(const char* input_path, const char* output_path,
