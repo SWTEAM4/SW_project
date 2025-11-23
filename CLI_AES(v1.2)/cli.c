@@ -566,7 +566,8 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     if (progress_cb) {
         progress_cb(ciphertext_size, ciphertext_size, user_data);
     } else {
-        printf("Decryption completed!\n");
+        print_progress(ciphertext_size, ciphertext_size, "Decrypting");
+        printf("\nDecryption completed!\n");
     }
     
     return 1;
