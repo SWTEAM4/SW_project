@@ -34,25 +34,7 @@ extern "C" {
         const uint8_t* data, size_t data_len);
 
     void hmac_sha512_final(HMAC_SHA512_CTX* ctx, uint8_t* mac_out);
-
-    /* 리포트 타입 */
-    typedef struct {
-        int   id;        /* 1..7 */
-        int   pass;      /* 1 or 0 */
-        double ms;       /* elapsed milliseconds */
-    } HMAC_SHA512_Case;
-
-    typedef struct {
-        int total;          /* 항상 7 */
-        int passed;         /* 0..7 */
-        double ms_total;    /* case ms 합 */
-        HMAC_SHA512_Case cases[7];
-    } HMAC_SHA512_Report;
-
-    /* ( 리포트 작성 API  */
-    int hmac_sha512_run_report(HMAC_SHA512_Report* rep);
-    int hmac_sha512_write_json(const HMAC_SHA512_Report* rep, const char* path);
-
+    
 #ifdef __cplusplus
 }
 #endif

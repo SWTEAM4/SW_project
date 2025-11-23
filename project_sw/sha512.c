@@ -10,7 +10,6 @@
 #include "sha512.h"
 
 #define SHA512_BLOCK_SIZE 128 // 128 바이트 = 1024비트
-#define SHA512_DIGEST_LENGTH 64
 
 static const uint64_t K[80] = {
     0x428a2f98d728ae22,0x7137449123ef65cd,0xb5c0fbcfec4d3b2f,0xe9b5dba58189dbbc,
