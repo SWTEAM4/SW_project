@@ -276,7 +276,7 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
         } else {
             // 진행률 출력을 2% 단위로만 (성능 최적화)
             static long last_percent = -1;
-            long current_percent = (total_processed * 100) / file_size;
+            long current_percent = (long)((total_processed * 100LL) / file_size);
             long remaining = file_size - total_processed;
             // 2% 단위로 출력하거나, 마지막 청크 전이거나, 100%에 도달했을 때 출력
             if (current_percent != last_percent && 
@@ -521,7 +521,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
         } else {
             // 진행률 출력을 1% 단위로 (더 자주 업데이트)
             static long last_percent_decrypt = -1;
-            long current_percent = (total_read * 100) / ciphertext_size;
+            long current_percent = (long)((total_read * 100LL) / ciphertext_size);
             // 거의 완료되었거나 1% 단위로 업데이트
             long remaining = ciphertext_size - total_read;
             // 마지막 청크 전이거나 퍼센트가 변경되었을 때 출력
