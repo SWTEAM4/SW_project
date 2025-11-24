@@ -587,243 +587,243 @@ int decrypt_file_with_progress(const char* input_path, const char* output_path,
 }
 
 //#ifndef BUILD_GUI
-int main(void) {
-    // OpenSSL 활성화 여부 확인 (런타임 체크)
-    // crypto_random_bytes가 호출되면 자동으로 OpenSSL을 로드 시도함
-    uint8_t test_buf[1];
-    if (crypto_random_bytes(test_buf, 1) == CRYPTO_SUCCESS) {
-        printf("OpenSSL enabled (loaded at runtime)\n");
-    } else {
-        printf("OpenSSL not available (will use fallback rand())\n");
-    }
-    
-    // 시드 초기화 (프로그램 시작 시 한 번만)
-    srand((unsigned int)time(NULL));
-    
-    int service;
-    char file_path[512];
-    char password[32];
-    int aes_choice;
-    int aes_key_bits;
-    
-    printf("=======================================\n");
-    printf("    File Encryption/Decryption Program \n");
-    printf("=======================================\n\n");
-    
-    // 서비스 선택
-    printf("Enter service number:\n");
-    printf("1. File Encryption\n");
-    printf("2. File Decryption\n");
-    printf("Choice: ");
-    
-    if (scanf("%d", &service) != 1 || (service != 1 && service != 2)) {
-        printf("Error: Invalid input.\n");
-        return 1;
-    }
-    
-    if (service == 1) {
-        // 암호화
-        printf("\nEnter file path to encrypt: ");
-        if (scanf("%511s", file_path) != 1) {
-            printf("Error: Cannot read file path.\n");
-            return 1;
-        }
-        
-        printf("\nSelect AES for encryption:\n");
-        printf("1. AES-128\n");
-        printf("2. AES-192\n");
-        printf("3. AES-256\n");
-        printf("Choice: ");
-        
-        if (scanf("%d", &aes_choice) != 1 || aes_choice < 1 || aes_choice > 3) {
-            printf("Error: Invalid choice.\n");
-            return 1;
-        }
-        
-        aes_key_bits = (aes_choice == 1) ? 128 : (aes_choice == 2) ? 192 : 256;
-        printf("\nStarting file encryption with AES-%d-CTR.\n", aes_key_bits);
-        
-        printf("Enter password (alphanumeric, case-sensitive, max 10 chars): ");
-        if (scanf("%31s", password) != 1) {
-            printf("Error: Cannot read password.\n");
-            return 1;
-        }
-        
-        if (!validate_password(password)) {
-            printf("Error: Password must be alphanumeric (case-sensitive) with maximum 10 characters.\n");
-            return 1;
-        }
-        
-        // 저장할 경로 입력
-        char save_path[512];
-        printf("Enter path to save encrypted file: ");
-        if (scanf("%511s", save_path) != 1) {
-            printf("Error: Cannot read save path.\n");
-            return 1;
-        }
-        
-        // 파일 이름 입력
-        char file_name[256];
-        printf("Enter encrypted file name (.enc extension will be added automatically): ");
-        if (scanf("%255s", file_name) != 1) {
-            printf("Error: Cannot read file name.\n");
-            return 1;
-        }
-        
-        // 최종 출력 경로 생성 (경로 + 파일명 + .enc)
-        char output_path[512];
-        size_t path_len = strlen(save_path);
-        // 경로 끝에 구분자가 없으면 추가
-        if (path_len > 0 && save_path[path_len - 1] != '/' && save_path[path_len - 1] != '\\') {
-#ifdef _WIN32
-            snprintf(output_path, sizeof(output_path), "%s\\%s.enc", save_path, file_name);
-#else
-            snprintf(output_path, sizeof(output_path), "%s/%s.enc", save_path, file_name);
-#endif
-        } else {
-            snprintf(output_path, sizeof(output_path), "%s%s.enc", save_path, file_name);
-        }
-        
-        // 시간 측정 시작
-#ifdef PLATFORM_WINDOWS
-        clock_t start = clock();
-#else
-        struct timeval start, end;
-        gettimeofday(&start, NULL);
-#endif
-        
-        if (encrypt_file(file_path, output_path, aes_key_bits, password)) {
-            // 시간 측정 종료 및 계산
-#ifdef PLATFORM_WINDOWS
-            clock_t end = clock();
-            double elapsed = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0; // 밀리초
-            printf("File encryption and HMAC generation succeeded.\n");
-            printf("Encryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
-#else
-            gettimeofday(&end, NULL);
-            double elapsed = (end.tv_sec - start.tv_sec) * 1000.0 + 
-                           (end.tv_usec - start.tv_usec) / 1000.0; // 밀리초
-            printf("File encryption and HMAC generation succeeded.\n");
-            printf("Encryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
-#endif
-            
-            // 파일 크기 확인 및 속도 계산
-            FILE* f = fopen(file_path, "rb");
-            if (f) {
-                fseek(f, 0, SEEK_END);
-                long file_size = ftell(f);
-                fclose(f);
-                
-                if (elapsed > 0 && file_size > 0) {
-                    double speed = (file_size / (1024.0 * 1024.0)) / (elapsed / 1000.0); // MB/s
-                    printf("File size: %.2f MB\n", file_size / (1024.0 * 1024.0));
-                    printf("Encryption speed: %.2f MB/s\n", speed);
-                }
-            }
-            
-            printf("Encrypted file: %s\n", output_path);
-        } else {
-            printf("Error: File encryption failed.\n");
-            return 1;
-        }
-        
-    } else if (service == 2) {
-        // 복호화
-        printf("\nEnter file path to decrypt: ");
-        if (scanf("%511s", file_path) != 1) {
-            printf("Error: Cannot read file path.\n");
-            return 1;
-        }
-        
-        // 헤더에서 AES 키 길이 읽기
-        int aes_key_bits = read_aes_key_length(file_path);
-        if (aes_key_bits == 0) {
-            printf("Error: Cannot read encrypted file or invalid format.\n");
-            return 1;
-        }
-        
-        printf("\nStarting file decryption with AES-%d-CTR.\n", aes_key_bits);
-        printf("Enter password used for encryption: ");
-        if (scanf("%31s", password) != 1) {
-            printf("Error: Cannot read password.\n");
-            return 1;
-        }
-        
-        // 저장할 경로 입력
-        char save_path[512];
-        printf("Enter path to save decrypted file (excluding filename): ");
-        if (scanf("%511s", save_path) != 1) {
-            printf("Error: Cannot read save path.\n");
-            return 1;
-        }
-        
-        // 파일 이름 입력 (확장자는 자동으로 추가됨)
-        char file_name[256];
-        printf("Enter decrypted file name (extension will be added automatically): ");
-        if (scanf("%255s", file_name) != 1) {
-            printf("Error: Cannot read file name.\n");
-            return 1;
-        }
-        
-        // 최종 출력 경로 생성 (경로 + 파일명, 확장자는 decrypt_file에서 추가)
-        char output_path[512];
-        size_t path_len = strlen(save_path);
-        // 경로 끝에 구분자가 없으면 추가
-        if (path_len > 0 && save_path[path_len - 1] != '/' && save_path[path_len - 1] != '\\') {
-#ifdef _WIN32
-            snprintf(output_path, sizeof(output_path), "%s\\%s", save_path, file_name);
-#else
-            snprintf(output_path, sizeof(output_path), "%s/%s", save_path, file_name);
-#endif
-        } else {
-            snprintf(output_path, sizeof(output_path), "%s%s", save_path, file_name);
-        }
-        
-        // 시간 측정 시작
-#ifdef PLATFORM_WINDOWS
-        clock_t start = clock();
-#else
-        struct timeval start, end;
-        gettimeofday(&start, NULL);
-#endif
-        
-        char actual_output_path[512];
-        if (decrypt_file(file_path, output_path, password, actual_output_path, sizeof(actual_output_path))) {
-            // 시간 측정 종료 및 계산
-#ifdef PLATFORM_WINDOWS
-            clock_t end = clock();
-            double elapsed = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0; // 밀리초
-            printf("Integrity verified. File decryption succeeded.\n");
-            printf("Decryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
-#else
-            gettimeofday(&end, NULL);
-            double elapsed = (end.tv_sec - start.tv_sec) * 1000.0 + 
-                           (end.tv_usec - start.tv_usec) / 1000.0; // 밀리초
-            printf("Integrity verified. File decryption succeeded.\n");
-            printf("Decryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
-#endif
-            
-            // 파일 크기 확인 및 속도 계산
-            FILE* f = fopen(file_path, "rb");
-            if (f) {
-                fseek(f, 0, SEEK_END);
-                long file_size = ftell(f);
-                fclose(f);
-                
-                if (elapsed > 0 && file_size > 0) {
-                    double speed = (file_size / (1024.0 * 1024.0)) / (elapsed / 1000.0); // MB/s
-                    printf("File size: %.2f MB\n", file_size / (1024.0 * 1024.0));
-                    printf("Decryption speed: %.2f MB/s\n", speed);
-                }
-            }
-            
-            printf("Decrypted file: %s\n", actual_output_path);
-        } else {
-            printf("Error: File decryption failed.\n");
-            return 1;
-        }
-    }
-    
-    return 0;
-}
+//int main(void) {
+//    // OpenSSL 활성화 여부 확인 (런타임 체크)
+//    // crypto_random_bytes가 호출되면 자동으로 OpenSSL을 로드 시도함
+//    uint8_t test_buf[1];
+//    if (crypto_random_bytes(test_buf, 1) == CRYPTO_SUCCESS) {
+//        printf("OpenSSL enabled (loaded at runtime)\n");
+//    } else {
+//        printf("OpenSSL not available (will use fallback rand())\n");
+//    }
+//    
+//    // 시드 초기화 (프로그램 시작 시 한 번만)
+//    srand((unsigned int)time(NULL));
+//    
+//    int service;
+//    char file_path[512];
+//    char password[32];
+//    int aes_choice;
+//    int aes_key_bits;
+//    
+//    printf("=======================================\n");
+//    printf("    File Encryption/Decryption Program \n");
+//    printf("=======================================\n\n");
+//    
+//    // 서비스 선택
+//    printf("Enter service number:\n");
+//    printf("1. File Encryption\n");
+//    printf("2. File Decryption\n");
+//    printf("Choice: ");
+//    
+//    if (scanf("%d", &service) != 1 || (service != 1 && service != 2)) {
+//        printf("Error: Invalid input.\n");
+//        return 1;
+//    }
+//    
+//    if (service == 1) {
+//        // 암호화
+//        printf("\nEnter file path to encrypt: ");
+//        if (scanf("%511s", file_path) != 1) {
+//            printf("Error: Cannot read file path.\n");
+//            return 1;
+//        }
+//        
+//        printf("\nSelect AES for encryption:\n");
+//        printf("1. AES-128\n");
+//        printf("2. AES-192\n");
+//        printf("3. AES-256\n");
+//        printf("Choice: ");
+//        
+//        if (scanf("%d", &aes_choice) != 1 || aes_choice < 1 || aes_choice > 3) {
+//            printf("Error: Invalid choice.\n");
+//            return 1;
+//        }
+//        
+//        aes_key_bits = (aes_choice == 1) ? 128 : (aes_choice == 2) ? 192 : 256;
+//        printf("\nStarting file encryption with AES-%d-CTR.\n", aes_key_bits);
+//        
+//        printf("Enter password (alphanumeric, case-sensitive, max 10 chars): ");
+//        if (scanf("%31s", password) != 1) {
+//            printf("Error: Cannot read password.\n");
+//            return 1;
+//        }
+//        
+//        if (!validate_password(password)) {
+//            printf("Error: Password must be alphanumeric (case-sensitive) with maximum 10 characters.\n");
+//            return 1;
+//        }
+//        
+//        // 저장할 경로 입력
+//        char save_path[512];
+//        printf("Enter path to save encrypted file: ");
+//        if (scanf("%511s", save_path) != 1) {
+//            printf("Error: Cannot read save path.\n");
+//            return 1;
+//        }
+//        
+//        // 파일 이름 입력
+//        char file_name[256];
+//        printf("Enter encrypted file name (.enc extension will be added automatically): ");
+//        if (scanf("%255s", file_name) != 1) {
+//            printf("Error: Cannot read file name.\n");
+//            return 1;
+//        }
+//        
+//        // 최종 출력 경로 생성 (경로 + 파일명 + .enc)
+//        char output_path[512];
+//        size_t path_len = strlen(save_path);
+//        // 경로 끝에 구분자가 없으면 추가
+//        if (path_len > 0 && save_path[path_len - 1] != '/' && save_path[path_len - 1] != '\\') {
+//#ifdef _WIN32
+//            snprintf(output_path, sizeof(output_path), "%s\\%s.enc", save_path, file_name);
+//#else
+//            snprintf(output_path, sizeof(output_path), "%s/%s.enc", save_path, file_name);
+//#endif
+//        } else {
+//            snprintf(output_path, sizeof(output_path), "%s%s.enc", save_path, file_name);
+//        }
+//        
+//        // 시간 측정 시작
+//#ifdef PLATFORM_WINDOWS
+//        clock_t start = clock();
+//#else
+//        struct timeval start, end;
+//        gettimeofday(&start, NULL);
+//#endif
+//        
+//        if (encrypt_file(file_path, output_path, aes_key_bits, password)) {
+//            // 시간 측정 종료 및 계산
+//#ifdef PLATFORM_WINDOWS
+//            clock_t end = clock();
+//            double elapsed = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0; // 밀리초
+//            printf("File encryption and HMAC generation succeeded.\n");
+//            printf("Encryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
+//#else
+//            gettimeofday(&end, NULL);
+//            double elapsed = (end.tv_sec - start.tv_sec) * 1000.0 + 
+//                           (end.tv_usec - start.tv_usec) / 1000.0; // 밀리초
+//            printf("File encryption and HMAC generation succeeded.\n");
+//            printf("Encryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
+//#endif
+//            
+//            // 파일 크기 확인 및 속도 계산
+//            FILE* f = fopen(file_path, "rb");
+//            if (f) {
+//                fseek(f, 0, SEEK_END);
+//                long file_size = ftell(f);
+//                fclose(f);
+//                
+//                if (elapsed > 0 && file_size > 0) {
+//                    double speed = (file_size / (1024.0 * 1024.0)) / (elapsed / 1000.0); // MB/s
+//                    printf("File size: %.2f MB\n", file_size / (1024.0 * 1024.0));
+//                    printf("Encryption speed: %.2f MB/s\n", speed);
+//                }
+//            }
+//            
+//            printf("Encrypted file: %s\n", output_path);
+//        } else {
+//            printf("Error: File encryption failed.\n");
+//            return 1;
+//        }
+//        
+//    } else if (service == 2) {
+//        // 복호화
+//        printf("\nEnter file path to decrypt: ");
+//        if (scanf("%511s", file_path) != 1) {
+//            printf("Error: Cannot read file path.\n");
+//            return 1;
+//        }
+//        
+//        // 헤더에서 AES 키 길이 읽기
+//        int aes_key_bits = read_aes_key_length(file_path);
+//        if (aes_key_bits == 0) {
+//            printf("Error: Cannot read encrypted file or invalid format.\n");
+//            return 1;
+//        }
+//        
+//        printf("\nStarting file decryption with AES-%d-CTR.\n", aes_key_bits);
+//        printf("Enter password used for encryption: ");
+//        if (scanf("%31s", password) != 1) {
+//            printf("Error: Cannot read password.\n");
+//            return 1;
+//        }
+//        
+//        // 저장할 경로 입력
+//        char save_path[512];
+//        printf("Enter path to save decrypted file (excluding filename): ");
+//        if (scanf("%511s", save_path) != 1) {
+//            printf("Error: Cannot read save path.\n");
+//            return 1;
+//        }
+//        
+//        // 파일 이름 입력 (확장자는 자동으로 추가됨)
+//        char file_name[256];
+//        printf("Enter decrypted file name (extension will be added automatically): ");
+//        if (scanf("%255s", file_name) != 1) {
+//            printf("Error: Cannot read file name.\n");
+//            return 1;
+//        }
+//        
+//        // 최종 출력 경로 생성 (경로 + 파일명, 확장자는 decrypt_file에서 추가)
+//        char output_path[512];
+//        size_t path_len = strlen(save_path);
+//        // 경로 끝에 구분자가 없으면 추가
+//        if (path_len > 0 && save_path[path_len - 1] != '/' && save_path[path_len - 1] != '\\') {
+//#ifdef _WIN32
+//            snprintf(output_path, sizeof(output_path), "%s\\%s", save_path, file_name);
+//#else
+//            snprintf(output_path, sizeof(output_path), "%s/%s", save_path, file_name);
+//#endif
+//        } else {
+//            snprintf(output_path, sizeof(output_path), "%s%s", save_path, file_name);
+//        }
+//        
+//        // 시간 측정 시작
+//#ifdef PLATFORM_WINDOWS
+//        clock_t start = clock();
+//#else
+//        struct timeval start, end;
+//        gettimeofday(&start, NULL);
+//#endif
+//        
+//        char actual_output_path[512];
+//        if (decrypt_file(file_path, output_path, password, actual_output_path, sizeof(actual_output_path))) {
+//            // 시간 측정 종료 및 계산
+//#ifdef PLATFORM_WINDOWS
+//            clock_t end = clock();
+//            double elapsed = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0; // 밀리초
+//            printf("Integrity verified. File decryption succeeded.\n");
+//            printf("Decryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
+//#else
+//            gettimeofday(&end, NULL);
+//            double elapsed = (end.tv_sec - start.tv_sec) * 1000.0 + 
+//                           (end.tv_usec - start.tv_usec) / 1000.0; // 밀리초
+//            printf("Integrity verified. File decryption succeeded.\n");
+//            printf("Decryption time: %.2f ms (%.3f seconds)\n", elapsed, elapsed / 1000.0);
+//#endif
+//            
+//            // 파일 크기 확인 및 속도 계산
+//            FILE* f = fopen(file_path, "rb");
+//            if (f) {
+//                fseek(f, 0, SEEK_END);
+//                long file_size = ftell(f);
+//                fclose(f);
+//                
+//                if (elapsed > 0 && file_size > 0) {
+//                    double speed = (file_size / (1024.0 * 1024.0)) / (elapsed / 1000.0); // MB/s
+//                    printf("File size: %.2f MB\n", file_size / (1024.0 * 1024.0));
+//                    printf("Decryption speed: %.2f MB/s\n", speed);
+//                }
+//            }
+//            
+//            printf("Decrypted file: %s\n", actual_output_path);
+//        } else {
+//            printf("Error: File decryption failed.\n");
+//            return 1;
+//        }
+//    }
+//    
+//    return 0;
+//}
 //#endif // BUILD_GUI
