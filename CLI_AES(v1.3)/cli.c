@@ -262,7 +262,10 @@ static int encrypt_file_internal(const char* input_path, const char* output_path
             // 진행률 출력을 2% 단위로만 (성능 최적화)
             static long last_percent = -1;
             long current_percent = (total_processed * 100) / file_size;
-            if (current_percent != last_percent && (current_percent % 2 == 0 || current_percent == 100)) {
+            long remaining = file_size - total_processed;
+            // 2% 단위로 출력하거나, 마지막 청크 전이거나, 100%에 도달했을 때 출력
+            if (current_percent != last_percent && 
+                (current_percent % 2 == 0 || current_percent == 100 || remaining < FILE_CHUNK_SIZE)) {
                 print_progress(total_processed, file_size, "Encrypting");
                 last_percent = current_percent;
             }
@@ -495,9 +498,11 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
             // 진행률 출력을 1% 단위로 (더 자주 업데이트)
             static long last_percent_decrypt = -1;
             long current_percent = (total_read * 100) / ciphertext_size;
-            // 1% 단위로 업데이트하거나 완료 시
-            if (current_percent != last_percent_decrypt && 
-                (current_percent % 1 == 0 || total_read >= ciphertext_size)) {
+            // 거의 완료되었거나 1% 단위로 업데이트
+            long remaining = ciphertext_size - total_read;
+            // 마지막 청크 전이거나 퍼센트가 변경되었을 때 출력
+            // (remaining < FILE_CHUNK_SIZE로 마지막 청크 전에도 출력하여 99%에서 멈추지 않도록)
+            if (current_percent != last_percent_decrypt || remaining < FILE_CHUNK_SIZE) {
                 print_progress(total_read, ciphertext_size, "Decrypting");
                 last_percent_decrypt = current_percent;
             }
@@ -511,19 +516,17 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
                                  ciphertext_size, total_read);
     }
     
-    // 완료 시 항상 100% 진행률 출력
-    if (success && !progress_cb) {
-        static long last_percent_decrypt = -1;
-        if (last_percent_decrypt < 100) {
-            print_progress(ciphertext_size, ciphertext_size, "Decrypting");
-            last_percent_decrypt = 100;
-        }
+    // 완료 시 항상 100% 진행률 출력 (성공하고 모든 데이터를 읽었을 때만)
+    if (success && total_read == ciphertext_size && !progress_cb) {
+        // 실제로 완료되었으므로 100% 출력
+        print_progress(ciphertext_size, ciphertext_size, "Decrypting");
     }
     
-    free(buffer);  // 버퍼 해제
+    // 버퍼는 나중에 HMAC 검증과 출력 파일 작성에서도 사용하므로 여기서 해제하지 않음
     fclose(fin);
     
     if (!success) {
+        free(buffer);  // 실패 시에만 해제
         fclose(ftemp);
         if (!progress_cb) printf("\nDecryption failed!\n");
         return 0;
@@ -537,13 +540,7 @@ static int decrypt_file_internal(const char* input_path, const char* output_path
     hmac_sha512_update(&hmac_ctx, (uint8_t*)&header, sizeof(header));  // 헤더를 HMAC에 포함
     
     // 임시 파일에서 복호화된 평문을 읽으면서 HMAC 업데이트
-    // HMAC 검증을 위한 버퍼 재할당
-    buffer = (uint8_t*)malloc(FILE_CHUNK_SIZE);
-    if (!buffer) {
-        fclose(ftemp);
-        if (!progress_cb) printf("Error: Memory allocation failed.\n");
-        return 0;
-    }
+    // 버퍼 재사용 (이미 할당된 버퍼 사용)
     
     fseek(ftemp, 0, SEEK_SET);
     total_read = 0;

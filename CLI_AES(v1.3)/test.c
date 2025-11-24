@@ -571,26 +571,63 @@ static PerformanceMetrics test_file_operation(const char* input_file,
     // 메모리 사용량
     metrics.peak_memory_kb = mem_after.peak_rss_kb;
     
-    // 메모리 누수 추정 개선: 실제 작업 후 메모리 증가만 측정
-    // 초기화 비용을 제외하기 위해 더 정확한 측정
+    // 메모리 누수 추정 개선: 더 안정적인 측정
+    // Windows는 메모리를 즉시 해제하지 않을 수 있으므로, 
+    // 파일 크기에 비례한 증가는 정상적인 메모리 사용으로 간주
     if (mem_after.current_rss_kb > mem_before.current_rss_kb) {
         size_t leak_estimate = mem_after.current_rss_kb - mem_before.current_rss_kb;
-        // 1MB 이상 증가한 경우는 초기화 비용일 가능성이 높으므로 누수로 간주하지 않음
-        if (leak_estimate < 1024) {
+        
+        // 파일 크기에 비례한 메모리 사용은 정상 (버퍼 + 파일 버퍼)
+        // 예상 정상 메모리: 파일 크기의 약 5-10% (버퍼 + 파일 버퍼)
+        size_t expected_memory_kb = 0;
+        if (input_size > 0) {
+            // 1MB 버퍼 + 512KB 파일 버퍼 3개 (복호화) = 약 2.5MB
+            // 암호화: 1MB 버퍼 + 512KB 파일 버퍼 = 약 1.5MB
+            // 평균 약 2MB + 파일 크기의 5% (안전 마진)
+            expected_memory_kb = 2 * 1024 + (input_size / 1024) * 0.05;
+        }
+        
+        // 예상 메모리보다 크게 증가한 경우만 누수로 간주
+        // 또는 절대값이 500KB 이상 증가한 경우 누수로 간주
+        if (leak_estimate > expected_memory_kb && leak_estimate >= 500) {
             metrics.memory_leak_kb = leak_estimate;
         } else {
-            // 큰 증가는 초기화 비용일 가능성이 높음
             metrics.memory_leak_kb = 0;
         }
+    } else {
+        metrics.memory_leak_kb = 0;
     }
     
-    // 버퍼 재사용 여부는 간접적으로 확인 (메모리 증가율이 낮으면 재사용 가능성 높음)
-    // 파일 크기 대비 메모리 증가가 작으면 버퍼 재사용 가능성 높음
-    size_t memory_increase = (mem_during.current_rss_kb > mem_before.current_rss_kb) ?
-                            (mem_during.current_rss_kb - mem_before.current_rss_kb) : 0;
+    // 버퍼 재사용 여부 개선: 복호화 후 메모리도 고려
+    // 암호화 중과 복호화 후 메모리 사용량 중 작은 값 기준으로 판단
+    size_t memory_during_encrypt = (mem_during.current_rss_kb > mem_before.current_rss_kb) ?
+                                   (mem_during.current_rss_kb - mem_before.current_rss_kb) : 0;
+    size_t memory_after_decrypt = (mem_after.current_rss_kb > mem_before.current_rss_kb) ?
+                                 (mem_after.current_rss_kb - mem_before.current_rss_kb) : 0;
+    
+    // 더 작은 값 사용 (버퍼 재사용 시 메모리 증가가 작아야 함)
+    size_t memory_increase = (memory_during_encrypt < memory_after_decrypt) ?
+                            memory_during_encrypt : memory_after_decrypt;
+    
     if (input_size > 0) {
-        double memory_ratio = (double)memory_increase / (input_size / 1024.0);
-        metrics.buffer_reused = (memory_ratio < 0.1) ? 1 : 0; // 파일 크기의 10% 미만이면 재사용
+        // 파일 크기를 KB로 변환
+        size_t file_size_kb = input_size / 1024;
+        
+        // 비율 계산
+        double memory_ratio = (double)memory_increase / file_size_kb;
+        
+        // 절대값 기준: 3MB 미만이고, 비율이 3% 미만이면 버퍼 재사용으로 판단
+        // (버퍼 재사용 시 메모리 증가는 파일 크기와 무관하게 작아야 함)
+        size_t absolute_threshold_kb = 3 * 1024; // 3MB
+        double ratio_threshold = 0.03; // 3%
+        
+        if (memory_increase < absolute_threshold_kb && memory_ratio < ratio_threshold) {
+            metrics.buffer_reused = 1; // 재사용됨
+        } else {
+            metrics.buffer_reused = 0; // 재사용 안 됨
+        }
+    } else {
+        metrics.buffer_reused = 0;
     }
     
     return metrics;
