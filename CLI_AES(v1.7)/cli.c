@@ -64,6 +64,51 @@ static void log_info(int show_error, const char* format, ...) {
 }
 
 /**
+ * @brief 사용자로부터 문자열 입력을 받습니다.
+ * @param prompt 입력 프롬프트 메시지
+ * @param buffer 입력을 저장할 버퍼
+ * @param buffer_size 버퍼 크기
+ * @param scanf_format scanf 형식 문자열 (예: SCANF_PATH_FORMAT)
+ * @param error_msg 에러 발생 시 출력할 메시지
+ * @return 1 성공, 0 실패
+ */
+static int read_input_string(const char* prompt, char* buffer, size_t buffer_size,
+                             const char* scanf_format, const char* error_msg) {
+    if (!prompt || !buffer || buffer_size == 0 || !scanf_format || !error_msg) {
+        return 0;
+    }
+    
+    printf("%s", prompt);
+    if (scanf(scanf_format, buffer) != 1) {
+        log_error(1, "%s", error_msg);
+        return 0;
+    }
+    return 1;
+}
+
+/**
+ * @brief 사용자로부터 정수 입력을 받고 범위를 검증합니다.
+ * @param prompt 입력 프롬프트 메시지
+ * @param value 입력받은 정수를 저장할 포인터
+ * @param min 최소값
+ * @param max 최대값
+ * @param error_msg 에러 발생 시 출력할 메시지
+ * @return 1 성공, 0 실패
+ */
+static int read_input_int(const char* prompt, int* value, int min, int max, const char* error_msg) {
+    if (!prompt || !value || !error_msg) {
+        return 0;
+    }
+    
+    printf("%s", prompt);
+    if (scanf("%d", value) != 1 || *value < min || *value > max) {
+        log_error(1, "%s", error_msg);
+        return 0;
+    }
+    return 1;
+}
+
+/**
  * @brief 암호화/복호화 성공 결과를 출력합니다.
  * @param operation 작업 타입 ("encrypt" 또는 "decrypt")
  * @param output_path 출력 파일 경로
@@ -956,18 +1001,14 @@ int main(void) {
     printf("Enter service number:\n");
     printf("1. File Encryption\n");
     printf("2. File Decryption\n");
-    printf("Choice: ");
-    
-    if (scanf("%d", &service) != 1 || (service != 1 && service != 2)) {
-        log_error(1, "Invalid input.\n");
+    if (!read_input_int("Choice: ", &service, 1, 2, "Invalid input.\n")) {
         return 1;
     }
     
     if (service == 1) {
         // 암호화
-        printf("\nEnter file path to encrypt: ");
-        if (scanf(SCANF_PATH_FORMAT, file_path) != 1) {
-            log_error(1, "Cannot read file path.\n");
+        if (!read_input_string("\nEnter file path to encrypt: ", file_path, sizeof(file_path),
+                               SCANF_PATH_FORMAT, "Cannot read file path.\n")) {
             return 1;
         }
         
@@ -975,19 +1016,16 @@ int main(void) {
         printf("1. AES-128\n");
         printf("2. AES-192\n");
         printf("3. AES-256\n");
-        printf("Choice: ");
-        
-        if (scanf("%d", &aes_choice) != 1 || aes_choice < 1 || aes_choice > 3) {
-            log_error(1, "Invalid choice.\n");
+        if (!read_input_int("Choice: ", &aes_choice, 1, 3, "Invalid choice.\n")) {
             return 1;
         }
         
         aes_key_bits = (aes_choice == 1) ? 128 : (aes_choice == 2) ? 192 : 256;
         printf("\nStarting file encryption with AES-%d-CTR.\n", aes_key_bits);
         
-        printf("Enter password (alphanumeric, case-sensitive, max 10 chars): ");
-        if (scanf(SCANF_PASSWORD_FORMAT, password) != 1) {
-            log_error(1, "Cannot read password.\n");
+        if (!read_input_string("Enter password (alphanumeric, case-sensitive, max 10 chars): ",
+                               password, sizeof(password), SCANF_PASSWORD_FORMAT,
+                               "Cannot read password.\n")) {
             return 1;
         }
         
@@ -998,17 +1036,16 @@ int main(void) {
         
         // 저장할 경로 입력
         char save_path[MAX_PATH_LENGTH];
-        printf("Enter path to save encrypted file: ");
-        if (scanf(SCANF_PATH_FORMAT, save_path) != 1) {
-            log_error(1, "Cannot read save path.\n");
+        if (!read_input_string("Enter path to save encrypted file: ", save_path, sizeof(save_path),
+                               SCANF_PATH_FORMAT, "Cannot read save path.\n")) {
             return 1;
         }
         
         // 파일 이름 입력
         char file_name[MAX_FILENAME_LENGTH];
-        printf("Enter encrypted file name (.enc extension will be added automatically): ");
-        if (scanf(SCANF_FILENAME_FORMAT, file_name) != 1) {
-            log_error(1, "Cannot read file name.\n");
+        if (!read_input_string("Enter encrypted file name (.enc extension will be added automatically): ",
+                               file_name, sizeof(file_name), SCANF_FILENAME_FORMAT,
+                               "Cannot read file name.\n")) {
             return 1;
         }
         
@@ -1025,9 +1062,8 @@ int main(void) {
         
     } else if (service == 2) {
         // 복호화
-        printf("\nEnter file path to decrypt: ");
-        if (scanf(SCANF_PATH_FORMAT, file_path) != 1) {
-            log_error(1, "Cannot read file path.\n");
+        if (!read_input_string("\nEnter file path to decrypt: ", file_path, sizeof(file_path),
+                               SCANF_PATH_FORMAT, "Cannot read file path.\n")) {
             return 1;
         }
         
@@ -1039,25 +1075,24 @@ int main(void) {
         }
         
         printf("\nStarting file decryption with AES-%d-CTR.\n", aes_key_bits);
-        printf("Enter password used for encryption: ");
-        if (scanf(SCANF_PASSWORD_FORMAT, password) != 1) {
-            log_error(1, "Cannot read password.\n");
+        if (!read_input_string("Enter password used for encryption: ", password, sizeof(password),
+                               SCANF_PASSWORD_FORMAT, "Cannot read password.\n")) {
             return 1;
         }
         
         // 저장할 경로 입력
         char save_path[MAX_PATH_LENGTH];
-        printf("Enter path to save decrypted file (excluding filename): ");
-        if (scanf(SCANF_PATH_FORMAT, save_path) != 1) {
-            log_error(1, "Cannot read save path.\n");
+        if (!read_input_string("Enter path to save decrypted file (excluding filename): ",
+                               save_path, sizeof(save_path), SCANF_PATH_FORMAT,
+                               "Cannot read save path.\n")) {
             return 1;
         }
         
         // 파일 이름 입력 (확장자는 자동으로 추가됨)
         char file_name[MAX_FILENAME_LENGTH];
-        printf("Enter decrypted file name (extension will be added automatically): ");
-        if (scanf(SCANF_FILENAME_FORMAT, file_name) != 1) {
-            log_error(1, "Cannot read file name.\n");
+        if (!read_input_string("Enter decrypted file name (extension will be added automatically): ",
+                               file_name, sizeof(file_name), SCANF_FILENAME_FORMAT,
+                               "Cannot read file name.\n")) {
             return 1;
         }
         

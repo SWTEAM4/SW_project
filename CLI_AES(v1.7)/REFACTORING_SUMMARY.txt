@@ -3,7 +3,7 @@
 ================================================================================
 
 작업 일자: 2024년
-작업 단계: 1단계, 2단계, 추가 작업 완료 (진행률 로직 개선, 에러 처리 개선, CRYPTO_STATUS 개선, 함수 문서화, 에러 메시지 일관성 개선, 성능 측정 제거 및 결과 출력 통합, 디버깅 출력 조건부 컴파일, GUI 에러 메시지 최적화, 경로 생성 로직 통합)
+작업 단계: 1단계, 2단계, 추가 작업 완료 (진행률 로직 개선, 에러 처리 개선, CRYPTO_STATUS 개선, 함수 문서화, 에러 메시지 일관성 개선, 성능 측정 제거 및 결과 출력 통합, 디버깅 출력 조건부 컴파일, GUI 에러 메시지 최적화, 경로 생성 로직 통합, main() 에러 메시지 통일, 매직 넘버 상수화 확장, 입력 처리 로직 통합)
 
 ================================================================================
 1단계: 중복 코드 제거
@@ -897,6 +897,236 @@ build_output_path(output_path, sizeof(output_path), save_path, file_name, ".enc"
 5. 재사용성
    ✓ 다른 모듈에서도 경로 생성 함수 재사용 가능
    ✓ 일관된 경로 생성 방식 보장
+
+================================================================================
+추가 작업 9: main() 함수 에러 메시지 통일
+================================================================================
+
+【작업 내용】
+- main() 함수의 모든 printf("Error: ...") 호출을 log_error() 함수로 통일
+- 에러 메시지 형식 일관성 확보
+
+【변경 내용】
+
+변경 전:
+```c
+printf("Error: Invalid input.\n");
+printf("Error: Cannot read file path.\n");
+// ... 총 14곳에서 직접 printf 사용
+```
+
+변경 후:
+```c
+log_error(1, "Invalid input.\n");
+log_error(1, "Cannot read file path.\n");
+// ... 모든 에러 메시지가 log_error()로 통일
+```
+
+변경된 위치 (총 14곳):
+1. 962줄: Invalid input
+2. 970줄: Cannot read file path (암호화)
+3. 981줄: Invalid choice
+4. 990줄: Cannot read password (암호화)
+5. 995줄: Password validation error
+6. 1003줄: Cannot read save path (암호화)
+7. 1011줄: Cannot read file name (암호화)
+8. 1022줄: File encryption failed
+9. 1030줄: Cannot read file path (복호화)
+10. 1037줄: Cannot read encrypted file
+11. 1044줄: Cannot read password (복호화)
+12. 1052줄: Cannot read save path (복호화)
+13. 1060줄: Cannot read file name (복호화)
+14. 1072줄: File decryption failed
+
+【개선 효과】
+1. 일관성
+   ✓ 모든 에러 메시지가 log_error()를 통해 출력됨
+   ✓ 모든 에러 메시지에 [ERROR] 접두사가 자동 추가됨
+
+2. 유지보수성
+   ✓ 에러 메시지 형식 변경 시 log_error() 함수만 수정하면 됨
+   ✓ 에러 메시지 형식이 일관되게 유지됨
+
+3. 코드 품질
+   ✓ 중복 코드 제거
+   ✓ 일관된 에러 처리 패턴
+
+================================================================================
+추가 작업 10: 매직 넘버 상수화 확장
+================================================================================
+
+【작업 내용】
+- main() 함수의 버퍼 크기 및 scanf 형식 문자열을 상수로 교체
+- kdf.c의 매직 넘버를 상수로 교체
+
+【1. main() 함수 매직 넘버 상수화】
+
+file_crypto.h에 추가된 상수:
+```c
+// 사용자 입력 버퍼 크기
+#define MAX_PATH_LENGTH 512
+#define MAX_FILENAME_LENGTH 256
+#define MAX_PASSWORD_LENGTH 32
+
+// scanf 제한 (null terminator를 위한 -1)
+#define SCANF_PATH_FORMAT "%511s"
+#define SCANF_FILENAME_FORMAT "%255s"
+#define SCANF_PASSWORD_FORMAT "%31s"
+```
+
+cli.c main() 함수에서 교체:
+- 버퍼 크기: `512` → `MAX_PATH_LENGTH`, `256` → `MAX_FILENAME_LENGTH`, `32` → `MAX_PASSWORD_LENGTH`
+- scanf 형식: `"%511s"` → `SCANF_PATH_FORMAT`, `"%255s"` → `SCANF_FILENAME_FORMAT`, `"%31s"` → `SCANF_PASSWORD_FORMAT`
+
+변경된 위치:
+- 946줄: file_path 버퍼
+- 947줄: password 버퍼
+- 969줄, 1029줄: 파일 경로 입력
+- 989줄, 1043줄: 비밀번호 입력
+- 1000줄, 1049줄: save_path 버퍼
+- 1002줄, 1051줄: 저장 경로 입력
+- 1008줄, 1057줄: file_name 버퍼
+- 1010줄, 1059줄: 파일명 입력
+- 1016줄, 1065줄: output_path 버퍼
+- 1068줄: actual_output_path 버퍼
+
+【2. kdf.c 매직 넘버 상수화】
+
+kdf.h에 추가된 상수:
+```c
+// PBKDF2 관련 상수
+#define PBKDF2_BLOCK_INDEX_SIZE 4        // 블록 인덱스 바이트 수 (big-endian)
+#define PBKDF2_SALT_BLOCK_MAX_SIZE 256   // salt_block 최대 크기
+```
+
+kdf.c에서 교체:
+- `256` → `PBKDF2_SALT_BLOCK_MAX_SIZE`
+- `4` → `PBKDF2_BLOCK_INDEX_SIZE`
+- `64` → `SHA512_DIGEST_LENGTH` (crypto_api.h에서 재사용)
+- `63` → `(SHA512_DIGEST_LENGTH - 1)`
+
+변경된 위치:
+- 30줄: 블록 수 계산
+- 34줄: salt_block 버퍼 크기
+- 35줄: salt_block_len 계산
+- 45줄: u 버퍼 크기
+- 48줄: t 버퍼 크기
+- 49줄: memcpy 크기
+- 53줄: hmac_sha512 호출
+- 54줄: 반복문 범위
+- 60-62줄: 블록 크기 계산 및 복사
+
+【변경 통계】
+- 추가된 상수: 8개 (file_crypto.h 6개, kdf.h 2개)
+- 교체된 매직 넘버: 약 20곳
+- 재사용된 상수: SHA512_DIGEST_LENGTH (crypto_api.h)
+
+【개선 효과】
+1. 가독성
+   ✓ 버퍼 크기와 scanf 형식의 의미가 명확해짐
+   ✓ 매직 넘버 대신 의미 있는 상수명 사용
+
+2. 유지보수성
+   ✓ 버퍼 크기 변경 시 한 곳만 수정하면 됨
+   ✓ SHA512 관련 상수는 crypto_api.h에서 재사용
+
+3. 일관성
+   ✓ 모든 버퍼 크기가 상수로 통일
+   ✓ scanf 형식 문자열이 상수로 통일
+
+4. 정확성
+   ✓ SHA512_DIGEST_LENGTH 재사용으로 일관성 확보
+   ✓ 버퍼 크기와 scanf 제한이 일치하도록 보장
+
+================================================================================
+추가 작업 11: 입력 처리 로직 통합
+================================================================================
+
+【작업 내용】
+- main() 함수의 반복되는 scanf 패턴을 헬퍼 함수로 통합
+- 입력 검증 및 에러 처리 로직 일원화
+
+【생성된 헬퍼 함수】
+
+1. read_input_string()
+   위치: cli.c (71-90줄)
+   기능: 사용자로부터 문자열 입력을 받고 에러 처리
+   파라미터:
+     - prompt: 입력 프롬프트 메시지
+     - buffer: 입력을 저장할 버퍼
+     - buffer_size: 버퍼 크기
+     - scanf_format: scanf 형식 문자열 (예: SCANF_PATH_FORMAT)
+     - error_msg: 에러 발생 시 출력할 메시지
+   반환값: 1 성공, 0 실패
+
+2. read_input_int()
+   위치: cli.c (92-110줄)
+   기능: 사용자로부터 정수 입력을 받고 범위를 검증
+   파라미터:
+     - prompt: 입력 프롬프트 메시지
+     - value: 입력받은 정수를 저장할 포인터
+     - min: 최소값
+     - max: 최대값
+     - error_msg: 에러 발생 시 출력할 메시지
+   반환값: 1 성공, 0 실패
+
+【main() 함수에서 교체】
+
+변경 전:
+```c
+printf("Enter file path to encrypt: ");
+if (scanf(SCANF_PATH_FORMAT, file_path) != 1) {
+    log_error(1, "Cannot read file path.\n");
+    return 1;
+}
+```
+
+변경 후:
+```c
+if (!read_input_string("\nEnter file path to encrypt: ", file_path, sizeof(file_path),
+                       SCANF_PATH_FORMAT, "Cannot read file path.\n")) {
+    return 1;
+}
+```
+
+교체된 위치 (총 10곳):
+1. 961줄: 서비스 선택 → read_input_int()
+2. 969줄: 암호화 파일 경로 → read_input_string()
+3. 980줄: AES 선택 → read_input_int()
+4. 989줄: 비밀번호 입력 → read_input_string()
+5. 1002줄: 저장 경로 입력 → read_input_string()
+6. 1010줄: 파일명 입력 → read_input_string()
+7. 1029줄: 복호화 파일 경로 → read_input_string()
+8. 1043줄: 복호화 비밀번호 → read_input_string()
+9. 1051줄: 복호화 저장 경로 → read_input_string()
+10. 1059줄: 복호화 파일명 → read_input_string()
+
+【변경 통계】
+- 제거된 중복 코드: 약 30줄 (10곳 × 평균 3줄)
+- 추가된 코드: 약 40줄 (헬퍼 함수 2개)
+- 순 증가: 약 10줄 (가독성과 유지보수성 향상)
+- 중복 제거: scanf 패턴 10곳 → 2개 함수로 통합
+
+【개선 효과】
+1. 중복 제거
+   ✓ scanf 패턴이 한 곳에 집중
+   ✓ 에러 처리 로직이 통합됨
+
+2. 일관성
+   ✓ 모든 입력 처리가 동일한 방식으로 처리
+   ✓ 에러 메시지 형식이 통일됨
+
+3. 가독성
+   ✓ main() 함수가 더 간결해짐
+   ✓ 입력 처리 의도가 명확해짐
+
+4. 유지보수성
+   ✓ 입력 처리 로직 변경 시 한 곳만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+
+5. 테스트 용이성
+   ✓ 입력 처리 로직을 독립적으로 테스트 가능
+   ✓ 모킹이 용이해짐
 
 ================================================================================
 참고사항
