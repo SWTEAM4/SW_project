@@ -75,6 +75,7 @@ static void log_info(int show_error, const char* format, ...) {
 static int read_input_string(const char* prompt, char* buffer, size_t buffer_size,
                              const char* scanf_format, const char* error_msg) {
     if (!prompt || !buffer || buffer_size == 0 || !scanf_format || !error_msg) {
+        log_error(1, "Internal error: Invalid parameters for read_input_string.\n");
         return 0;
     }
     
@@ -97,6 +98,7 @@ static int read_input_string(const char* prompt, char* buffer, size_t buffer_siz
  */
 static int read_input_int(const char* prompt, int* value, int min, int max, const char* error_msg) {
     if (!prompt || !value || !error_msg) {
+        log_error(1, "Internal error: Invalid parameters for read_input_int.\n");
         return 0;
     }
     
