@@ -9,6 +9,10 @@
 extern "C" {
 #endif
 
+// PBKDF2 관련 상수
+#define PBKDF2_BLOCK_INDEX_SIZE 4        // 블록 인덱스 바이트 수 (big-endian)
+#define PBKDF2_SALT_BLOCK_MAX_SIZE 256   // salt_block 최대 크기
+
 /**
  * PBKDF2 스타일 키 도출 함수
  * 패스워드를 반복 해싱하여 키를 생성

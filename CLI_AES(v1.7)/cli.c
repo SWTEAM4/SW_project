@@ -943,8 +943,8 @@ int main(void) {
     srand((unsigned int)time(NULL));
     
     int service;
-    char file_path[512];
-    char password[32];
+    char file_path[MAX_PATH_LENGTH];
+    char password[MAX_PASSWORD_LENGTH];
     int aes_choice;
     int aes_key_bits;
     
@@ -959,15 +959,15 @@ int main(void) {
     printf("Choice: ");
     
     if (scanf("%d", &service) != 1 || (service != 1 && service != 2)) {
-        printf("Error: Invalid input.\n");
+        log_error(1, "Invalid input.\n");
         return 1;
     }
     
     if (service == 1) {
         // 암호화
         printf("\nEnter file path to encrypt: ");
-        if (scanf("%511s", file_path) != 1) {
-            printf("Error: Cannot read file path.\n");
+        if (scanf(SCANF_PATH_FORMAT, file_path) != 1) {
+            log_error(1, "Cannot read file path.\n");
             return 1;
         }
         
@@ -978,7 +978,7 @@ int main(void) {
         printf("Choice: ");
         
         if (scanf("%d", &aes_choice) != 1 || aes_choice < 1 || aes_choice > 3) {
-            printf("Error: Invalid choice.\n");
+            log_error(1, "Invalid choice.\n");
             return 1;
         }
         
@@ -986,90 +986,90 @@ int main(void) {
         printf("\nStarting file encryption with AES-%d-CTR.\n", aes_key_bits);
         
         printf("Enter password (alphanumeric, case-sensitive, max 10 chars): ");
-        if (scanf("%31s", password) != 1) {
-            printf("Error: Cannot read password.\n");
+        if (scanf(SCANF_PASSWORD_FORMAT, password) != 1) {
+            log_error(1, "Cannot read password.\n");
             return 1;
         }
         
         if (!validate_password(password)) {
-            printf("Error: Password must be alphanumeric (case-sensitive) with maximum 10 characters.\n");
+            log_error(1, "Password must be alphanumeric (case-sensitive) with maximum 10 characters.\n");
             return 1;
         }
         
         // 저장할 경로 입력
-        char save_path[512];
+        char save_path[MAX_PATH_LENGTH];
         printf("Enter path to save encrypted file: ");
-        if (scanf("%511s", save_path) != 1) {
-            printf("Error: Cannot read save path.\n");
+        if (scanf(SCANF_PATH_FORMAT, save_path) != 1) {
+            log_error(1, "Cannot read save path.\n");
             return 1;
         }
         
         // 파일 이름 입력
-        char file_name[256];
+        char file_name[MAX_FILENAME_LENGTH];
         printf("Enter encrypted file name (.enc extension will be added automatically): ");
-        if (scanf("%255s", file_name) != 1) {
-            printf("Error: Cannot read file name.\n");
+        if (scanf(SCANF_FILENAME_FORMAT, file_name) != 1) {
+            log_error(1, "Cannot read file name.\n");
             return 1;
         }
         
         // 최종 출력 경로 생성 (경로 + 파일명 + .enc)
-        char output_path[512];
+        char output_path[MAX_PATH_LENGTH];
         build_output_path(output_path, sizeof(output_path), save_path, file_name, ".enc");
         
         if (encrypt_file(file_path, output_path, aes_key_bits, password)) {
             print_operation_success("encrypt", output_path);
         } else {
-            printf("Error: File encryption failed.\n");
+            log_error(1, "File encryption failed.\n");
             return 1;
         }
         
     } else if (service == 2) {
         // 복호화
         printf("\nEnter file path to decrypt: ");
-        if (scanf("%511s", file_path) != 1) {
-            printf("Error: Cannot read file path.\n");
+        if (scanf(SCANF_PATH_FORMAT, file_path) != 1) {
+            log_error(1, "Cannot read file path.\n");
             return 1;
         }
         
         // 헤더에서 AES 키 길이 읽기
         int aes_key_bits = read_aes_key_length(file_path);
         if (aes_key_bits == 0) {
-            printf("Error: Cannot read encrypted file or invalid format.\n");
+            log_error(1, "Cannot read encrypted file or invalid format.\n");
             return 1;
         }
         
         printf("\nStarting file decryption with AES-%d-CTR.\n", aes_key_bits);
         printf("Enter password used for encryption: ");
-        if (scanf("%31s", password) != 1) {
-            printf("Error: Cannot read password.\n");
+        if (scanf(SCANF_PASSWORD_FORMAT, password) != 1) {
+            log_error(1, "Cannot read password.\n");
             return 1;
         }
         
         // 저장할 경로 입력
-        char save_path[512];
+        char save_path[MAX_PATH_LENGTH];
         printf("Enter path to save decrypted file (excluding filename): ");
-        if (scanf("%511s", save_path) != 1) {
-            printf("Error: Cannot read save path.\n");
+        if (scanf(SCANF_PATH_FORMAT, save_path) != 1) {
+            log_error(1, "Cannot read save path.\n");
             return 1;
         }
         
         // 파일 이름 입력 (확장자는 자동으로 추가됨)
-        char file_name[256];
+        char file_name[MAX_FILENAME_LENGTH];
         printf("Enter decrypted file name (extension will be added automatically): ");
-        if (scanf("%255s", file_name) != 1) {
-            printf("Error: Cannot read file name.\n");
+        if (scanf(SCANF_FILENAME_FORMAT, file_name) != 1) {
+            log_error(1, "Cannot read file name.\n");
             return 1;
         }
         
         // 최종 출력 경로 생성 (경로 + 파일명, 확장자는 decrypt_file에서 추가)
-        char output_path[512];
+        char output_path[MAX_PATH_LENGTH];
         build_output_path(output_path, sizeof(output_path), save_path, file_name, NULL);
         
-        char actual_output_path[512];
+        char actual_output_path[MAX_PATH_LENGTH];
         if (decrypt_file(file_path, output_path, password, actual_output_path, sizeof(actual_output_path))) {
             print_operation_success("decrypt", actual_output_path);
         } else {
-            printf("Error: File decryption failed.\n");
+            log_error(1, "File decryption failed.\n");
             return 1;
         }
     }

@@ -27,12 +27,12 @@ void pbkdf2_sha512(const uint8_t* password, size_t password_len,
     }
 
     // 필요한 블록 수 계산 (SHA512는 64바이트 출력)
-    size_t blocks_needed = (output_len + 63) / 64;
+    size_t blocks_needed = (output_len + (SHA512_DIGEST_LENGTH - 1)) / SHA512_DIGEST_LENGTH;
     
     for (size_t block = 0; block < blocks_needed; block++) {
         // U1 = HMAC-SHA512(password, salt || block_index)
-        uint8_t salt_block[256]; // 충분한 크기
-        size_t salt_block_len = actual_salt_len + 4;
+        uint8_t salt_block[PBKDF2_SALT_BLOCK_MAX_SIZE]; // 충분한 크기
+        size_t salt_block_len = actual_salt_len + PBKDF2_BLOCK_INDEX_SIZE;
         
         memcpy(salt_block, actual_salt, actual_salt_len);
         // Big-endian으로 블록 인덱스 추가
@@ -42,24 +42,24 @@ void pbkdf2_sha512(const uint8_t* password, size_t password_len,
         salt_block[actual_salt_len + 3] = (uint8_t)(block + 1);
         
         // HMAC-SHA512 계산
-        uint8_t u[64];
+        uint8_t u[SHA512_DIGEST_LENGTH];
         hmac_sha512(password, password_len, salt_block, salt_block_len, u);
         
-        uint8_t t[64];
-        memcpy(t, u, 64);
+        uint8_t t[SHA512_DIGEST_LENGTH];
+        memcpy(t, u, SHA512_DIGEST_LENGTH);
         
         // U2, U3, ... U_iterations 계산 및 XOR
         for (uint32_t i = 1; i < iterations; i++) {
-            hmac_sha512(password, password_len, u, 64, u);
-            for (size_t j = 0; j < 64; j++) {
+            hmac_sha512(password, password_len, u, SHA512_DIGEST_LENGTH, u);
+            for (size_t j = 0; j < SHA512_DIGEST_LENGTH; j++) {
                 t[j] ^= u[j];
             }
         }
         
         // 출력에 복사 (필요한 만큼만)
-        size_t copy_len = (output_len - block * 64 < 64) ? 
-                          (output_len - block * 64) : 64;
-        memcpy(output + block * 64, t, copy_len);
+        size_t copy_len = (output_len - block * SHA512_DIGEST_LENGTH < SHA512_DIGEST_LENGTH) ? 
+                          (output_len - block * SHA512_DIGEST_LENGTH) : SHA512_DIGEST_LENGTH;
+        memcpy(output + block * SHA512_DIGEST_LENGTH, t, copy_len);
     }
 }
 

@@ -29,6 +29,16 @@ extern "C" {
 // HMAC 키 길이
 #define HMAC_KEY_SIZE 24
 
+// 사용자 입력 버퍼 크기
+#define MAX_PATH_LENGTH 512
+#define MAX_FILENAME_LENGTH 256
+#define MAX_PASSWORD_LENGTH 32
+
+// scanf 제한 (null terminator를 위한 -1)
+#define SCANF_PATH_FORMAT "%511s"
+#define SCANF_FILENAME_FORMAT "%255s"
+#define SCANF_PASSWORD_FORMAT "%31s"
+
 // 파일 암호화/복호화 에러 코드
 typedef enum {
     FILE_CRYPTO_SUCCESS = 0,                    // 성공: 작업이 정상적으로 완료됨
