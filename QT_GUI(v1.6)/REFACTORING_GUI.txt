@@ -1,0 +1,2055 @@
+================================================================================
+                    QT_GUI(v1.4) 코드 리팩토링 요약
+================================================================================
+
+작업 일자: 2024년
+작업 단계: 1단계 - .enc 확장자 처리 중복 제거
+
+================================================================================
+1단계: .enc 확장자 처리 중복 제거
+================================================================================
+
+【작업 내용】
+- mainwindow.cpp에서 .enc 확장자 처리 로직이 여러 곳에 중복되어 있던 것을
+  유틸리티 함수로 통합하여 코드 중복을 제거하고 유지보수성을 향상시킴
+
+【문제점 분석】
+
+1. .enc 확장자 체크 로직 중복
+   - 위치: 6곳 (159, 241, 290, 356, 383, 516줄)
+   - 패턴: filePath.endsWith(".enc", Qt::CaseInsensitive)
+   - 문제: 동일한 체크 로직이 여러 곳에 반복됨
+
+2. .enc 확장자 제거 로직 중복
+   - 위치: 6곳 (241, 290, 356, 383, 516줄)
+   - 패턴 1: baseName.chop(4) - 1곳
+   - 패턴 2: baseName.left(baseName.length() - 4) - 5곳
+   - 문제: 두 가지 방식이 혼재되어 있고, 매직 넘버 4가 하드코딩됨
+
+3. .enc 확장자 추가 로직 중복
+   - 위치: 2곳 (351, 402줄)
+   - 패턴: baseName + ".enc"
+   - 문제: 매직 문자열 ".enc"가 하드코딩됨
+
+4. 매직 값 사용
+   - 매직 넘버: 4 (".enc" 길이)
+   - 매직 문자열: ".enc" (16곳에서 사용)
+
+【추가된 함수】
+
+1. isEncryptedFile()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 파일 경로가 .enc 확장자를 가진 암호화 파일인지 확인
+   시그니처: static bool isEncryptedFile(const QString &filePath);
+   반환값: .enc 확장자가 있으면 true, 없으면 false
+   
+   구현:
+   ```cpp
+   bool MainWindow::isEncryptedFile(const QString &filePath)
+   {
+       return filePath.endsWith(".enc", Qt::CaseInsensitive);
+   }
+   ```
+
+2. removeEncExtension()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: baseName에서 .enc 확장자를 제거
+   시그니처: static QString removeEncExtension(const QString &baseName);
+   반환값: .enc 확장자가 제거된 baseName
+   
+   구현:
+   ```cpp
+   QString MainWindow::removeEncExtension(const QString &baseName)
+   {
+       QString result = baseName;
+       if (result.endsWith(".enc", Qt::CaseInsensitive)) {
+           result.chop(4);  // ".enc" 제거
+       }
+       return result;
+   }
+   ```
+   
+   개선점:
+   - 두 가지 제거 방식(chop vs left)을 chop(4)로 통일
+   - 매직 넘버 4를 함수 내부로 캡슐화
+
+3. addEncExtension()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: baseName에 .enc 확장자를 추가 (이미 있으면 그대로 반환)
+   시그니처: static QString addEncExtension(const QString &baseName);
+   반환값: .enc 확장자가 추가된 baseName
+   
+   구현:
+   ```cpp
+   QString MainWindow::addEncExtension(const QString &baseName)
+   {
+       if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
+           return baseName;  // 이미 .enc가 있으면 그대로 반환
+       }
+       return baseName + ".enc";
+   }
+   ```
+   
+   개선점:
+   - 중복 추가 방지 로직 포함
+   - 매직 문자열 ".enc"를 함수 내부로 캡슐화
+
+【변경된 위치】
+
+1. addFilesToList() - 159줄
+   변경 전: fileInfo.isEncrypted = filePath.endsWith(".enc", Qt::CaseInsensitive);
+   변경 후: fileInfo.isEncrypted = isEncryptedFile(filePath);
+
+2. resolveSuggestedOutputPath() - 240-242줄
+   변경 전:
+   ```cpp
+   QString baseName = inputInfo.completeBaseName();
+   if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
+       baseName.chop(4);
+   }
+   ```
+   변경 후:
+   ```cpp
+   QString baseName = removeEncExtension(inputInfo.completeBaseName());
+   ```
+
+3. onBrowseOutputPath() - 285-291줄
+   변경 전:
+   ```cpp
+   QString baseName = inputInfo.completeBaseName();
+   // .enc 제거
+   if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
+       baseName = baseName.left(baseName.length() - 4);
+   }
+   ```
+   변경 후:
+   ```cpp
+   QString baseName = removeEncExtension(inputInfo.completeBaseName());
+   ```
+
+4. generateDefaultOutputPath() - 351, 356-357줄
+   변경 전 (351줄):
+   ```cpp
+   return fileInfo.path() + separator + fileInfo.completeBaseName() + ".enc";
+   ```
+   변경 후:
+   ```cpp
+   return fileInfo.path() + separator + addEncExtension(fileInfo.completeBaseName());
+   ```
+   
+   변경 전 (356-357줄):
+   ```cpp
+   if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
+       baseName = baseName.left(baseName.length() - 4);
+   }
+   ```
+   변경 후:
+   ```cpp
+   QString baseName = removeEncExtension(fileInfo.completeBaseName());
+   ```
+
+5. updateFileListDisplay() - 395, 412줄
+   변경 전 (395줄):
+   ```cpp
+   QString baseName = fileInfo.completeBaseName();
+   if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
+       baseName = baseName.left(baseName.length() - 4);
+   }
+   ```
+   변경 후:
+   ```cpp
+   QString baseName = removeEncExtension(fileInfo.completeBaseName());
+   ```
+   
+   변경 전 (412줄):
+   ```cpp
+   outputFileName = outputInfo.completeBaseName() + ".enc";
+   ```
+   변경 후:
+   ```cpp
+   outputFileName = addEncExtension(outputInfo.completeBaseName());
+   ```
+
+6. onDecrypt() - 525-517줄
+   변경 전:
+   ```cpp
+   QString baseName = fileInfo.completeBaseName();
+   if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
+       baseName = baseName.left(baseName.length() - 4);
+   }
+   ```
+   변경 후:
+   ```cpp
+   QString baseName = removeEncExtension(fileInfo.completeBaseName());
+   ```
+
+【변경 통계】
+
+- 생성된 함수: 3개
+  - isEncryptedFile(): .enc 파일 체크
+  - removeEncExtension(): .enc 확장자 제거
+  - addEncExtension(): .enc 확장자 추가
+
+- 제거된 중복 코드:
+  - .enc 확장자 체크: 6곳 → 1개 함수로 통합
+  - .enc 확장자 제거: 6곳 → 1개 함수로 통합
+  - .enc 확장자 추가: 2곳 → 1개 함수로 통합
+
+- 코드 라인 변화:
+  - 추가된 코드: 약 20줄 (함수 구현)
+  - 제거된 코드: 약 30줄 (중복 로직)
+  - 순 감소: 약 10줄
+
+- 매직 값 제거:
+  - 매직 넘버 4: 6곳 → 함수 내부로 캡슐화
+  - 매직 문자열 ".enc": 16곳 → 함수 내부로 캡슐화
+
+【개선 효과】
+
+1. 중복 제거
+   ✓ .enc 확장자 처리 로직이 한 곳에 집중
+   ✓ 두 가지 제거 방식(chop vs left)을 하나로 통일
+   ✓ 코드 중복 100% 제거
+
+2. 유지보수성
+   ✓ .enc 확장자 처리 로직 변경 시 한 곳만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+   ✓ 매직 값 변경 시 함수 내부만 수정하면 됨
+
+3. 가독성
+   ✓ 함수명으로 의도가 명확해짐
+   ✓ 코드가 더 간결하고 읽기 쉬워짐
+   ✓ 주석 없이도 코드 이해 가능
+
+4. 일관성
+   ✓ 모든 .enc 확장자 처리가 동일한 방식으로 처리됨
+   ✓ 코드 스타일 통일
+
+5. 재사용성
+   ✓ 다른 모듈에서도 유틸리티 함수 재사용 가능
+   ✓ static 함수로 인스턴스 없이 호출 가능
+
+6. 테스트 용이성
+   ✓ 각 함수를 독립적으로 테스트 가능
+   ✓ 단위 테스트 작성이 용이해짐
+
+【파일 변경 내역】
+
+1. mainwindow.h
+   - 추가: static bool isEncryptedFile(const QString &filePath);
+   - 추가: static QString removeEncExtension(const QString &baseName);
+   - 추가: static QString addEncExtension(const QString &baseName);
+
+2. mainwindow.cpp
+   - 추가: 3개 유틸리티 함수 구현 (약 20줄)
+   - 수정: 8곳의 중복 코드를 새 함수 호출로 교체
+
+【참고사항】
+
+- 모든 변경사항은 기존 기능을 유지하면서 진행됨
+- 함수 시그니처는 변경되지 않아 호환성 유지
+- 컴파일 경고 없음 확인 완료
+- static 함수로 선언하여 인스턴스 없이 호출 가능
+- Qt::CaseInsensitive를 사용하여 대소문자 구분 없이 처리
+
+================================================================================
+2단계: CryptoWorker 중복 메서드 제거
+================================================================================
+
+【작업 내용】
+- cryptoworker.cpp에서 encryptFile(), decryptFile()와 processFileList() 내부의
+  암호화/복호화 로직이 중복되어 있던 것을 공통 private 메서드로 추출하여
+  코드 중복을 제거하고 유지보수성을 향상시킴
+
+【문제점 분석】
+
+1. 암호화 로직 중복
+   - 위치 1: encryptFile() 메서드 (23-52줄)
+   - 위치 2: processFileList() 내부 암호화 부분 (101-121줄)
+   - 중복 내용:
+     * 경로 변환: QDir::toNativeSeparators() (2줄)
+     * 바이트 변환: toUtf8() (3줄)
+     * currentFileName 설정
+     * encrypt_file_with_progress() 호출
+   - 차이점: encryptFile()은 즉시 시그널 emit, processFileList()은 success 플래그 설정
+
+2. 복호화 로직 중복
+   - 위치 1: decryptFile() 메서드 (54-84줄)
+   - 위치 2: processFileList() 내부 복호화 부분 (122-195줄)
+   - 중복 내용:
+     * 경로 변환: QDir::toNativeSeparators() (2줄)
+     * 바이트 변환: toUtf8() (3줄)
+     * finalPath 배열 선언 및 초기화
+     * currentFileName 설정
+     * decrypt_file_with_progress() 호출
+   - 차이점: decryptFile()은 즉시 시그널 emit, processFileList()은 검증 로직 추가
+
+3. 중복 통계
+   - 암호화 경로 변환: 2곳 (6줄)
+   - 암호화 실행: 2곳 (10줄)
+   - 복호화 경로 변환: 2곳 (6줄)
+   - 복호화 실행: 2곳 (13줄)
+   - 총 중복 코드: 약 35줄
+
+【추가된 함수】
+
+1. performEncryption()
+   위치: cryptoworker.h (선언), cryptoworker.cpp (구현)
+   기능: 암호화 공통 로직을 수행하고 성공 여부를 반환
+   시그니처: bool performEncryption(const QString &inputPath, const QString &outputPath, 
+                                   int aesKeyBits, const QString &password);
+   반환값: 성공 시 true, 실패 시 false
+   
+   구현:
+   ```cpp
+   bool CryptoWorker::performEncryption(const QString &inputPath, const QString &outputPath, 
+                                        int aesKeyBits, const QString &password)
+   {
+       // Windows 네이티브 경로로 변환 (구분자 통일)
+       QString nativeInputPath = QDir::toNativeSeparators(inputPath);
+       QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
+       
+       // QString을 C 문자열로 변환
+       QByteArray inputBytes = nativeInputPath.toUtf8();
+       QByteArray outputBytes = nativeOutputPath.toUtf8();
+       QByteArray passwordBytes = password.toUtf8();
+       
+       currentFileName = inputPath;
+       
+       // 암호화 실행 (콜백 전달)
+       int result = encrypt_file_with_progress(
+           inputBytes.constData(),
+           outputBytes.constData(),
+           aesKeyBits,
+           passwordBytes.constData(),
+           progressCallback,
+           this
+       );
+       
+       return (result != 0);
+   }
+   ```
+
+2. performDecryption()
+   위치: cryptoworker.h (선언), cryptoworker.cpp (구현)
+   기능: 복호화 공통 로직을 수행하고 성공 여부를 반환
+   시그니처: bool performDecryption(const QString &inputPath, const QString &outputPath,
+                                   const QString &password);
+   반환값: 성공 시 true, 실패 시 false
+   
+   구현:
+   ```cpp
+   bool CryptoWorker::performDecryption(const QString &inputPath, const QString &outputPath,
+                                        const QString &password)
+   {
+       // Windows 네이티브 경로로 변환 (구분자 통일)
+       QString nativeInputPath = QDir::toNativeSeparators(inputPath);
+       QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
+       
+       QByteArray inputBytes = nativeInputPath.toUtf8();
+       QByteArray outputBytes = nativeOutputPath.toUtf8();
+       QByteArray passwordBytes = password.toUtf8();
+       
+       char finalPath[512];
+       memset(finalPath, 0, sizeof(finalPath));  // 초기화
+       
+       currentFileName = inputPath;
+       
+       int result = decrypt_file_with_progress(
+           inputBytes.constData(),
+           outputBytes.constData(),
+           passwordBytes.constData(),
+           finalPath,
+           sizeof(finalPath),
+           progressCallback,
+           this
+       );
+       
+       return (result != 0);
+   }
+   ```
+
+【변경된 위치】
+
+1. encryptFile() - 23-52줄 → 81-91줄
+   변경 전: 약 30줄 (경로 변환, 바이트 변환, 암호화 실행, 시그널 emit)
+   변경 후: 약 10줄 (performEncryption() 호출, 시그널 emit)
+   
+   변경 내용:
+   ```cpp
+   // 변경 전
+   void CryptoWorker::encryptFile(...) {
+       QString nativeInputPath = QDir::toNativeSeparators(inputPath);
+       QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
+       QByteArray inputBytes = nativeInputPath.toUtf8();
+       QByteArray outputBytes = nativeOutputPath.toUtf8();
+       QByteArray passwordBytes = password.toUtf8();
+       currentFileName = inputPath;
+       int result = encrypt_file_with_progress(...);
+       if (result) {
+           emit finished(...);
+       } else {
+           emit error(...);
+       }
+   }
+   
+   // 변경 후
+   void CryptoWorker::encryptFile(...) {
+       bool success = performEncryption(inputPath, outputPath, aesKeyBits, password);
+       if (success) {
+           emit finished(...);
+       } else {
+           emit error(...);
+       }
+   }
+   ```
+
+2. decryptFile() - 54-84줄 → 93-101줄
+   변경 전: 약 31줄 (경로 변환, 바이트 변환, 복호화 실행, 시그널 emit)
+   변경 후: 약 9줄 (performDecryption() 호출, 시그널 emit)
+   
+   변경 내용:
+   ```cpp
+   // 변경 전
+   void CryptoWorker::decryptFile(...) {
+       QString nativeInputPath = QDir::toNativeSeparators(inputPath);
+       QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
+       QByteArray inputBytes = nativeInputPath.toUtf8();
+       QByteArray outputBytes = nativeOutputPath.toUtf8();
+       QByteArray passwordBytes = password.toUtf8();
+       char finalPath[512];
+       currentFileName = inputPath;
+       int result = decrypt_file_with_progress(...);
+       if (result) {
+           emit finished(...);
+       } else {
+           emit error(...);
+       }
+   }
+   
+   // 변경 후
+   void CryptoWorker::decryptFile(...) {
+       bool success = performDecryption(inputPath, outputPath, password);
+       if (success) {
+           emit finished(...);
+       } else {
+           emit error(...);
+       }
+   }
+   ```
+
+3. processFileList() - 101-195줄
+   변경 전: 암호화/복호화 로직이 직접 구현됨 (약 95줄)
+   변경 후: performEncryption()/performDecryption() 호출 (약 50줄)
+   
+   변경 내용:
+   ```cpp
+   // 변경 전 (암호화 부분)
+   if (isEncrypt) {
+       QString nativeInputPath = QDir::toNativeSeparators(inputPath);
+       QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
+       QByteArray inputBytes = nativeInputPath.toUtf8();
+       QByteArray outputBytes = nativeOutputPath.toUtf8();
+       QByteArray passwordBytes = password.toUtf8();
+       currentFileName = inputPath;
+       int result = encrypt_file_with_progress(...);
+       success = (result != 0);
+   }
+   
+   // 변경 후
+   if (isEncrypt) {
+       success = performEncryption(inputPath, outputPath, aesKeyBits, password);
+   }
+   ```
+   
+   ```cpp
+   // 변경 전 (복호화 부분)
+   } else {
+       QString nativeInputPath = QDir::toNativeSeparators(inputPath);
+       QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
+       // ... 검증 로직 ...
+       QByteArray inputBytes = nativeInputPath.toUtf8();
+       QByteArray outputBytes = nativeOutputPath.toUtf8();
+       QByteArray passwordBytes = password.toUtf8();
+       char finalPath[512];
+       memset(finalPath, 0, sizeof(finalPath));
+       currentFileName = inputPath;
+       int result = decrypt_file_with_progress(...);
+       // ... 에러 처리 ...
+       success = (result != 0);
+   }
+   
+   // 변경 후
+   } else {
+       // 검증 로직은 유지 (파일 존재 확인, 디렉토리 확인)
+       // 복호화 실행만 공통 함수 사용
+       success = performDecryption(inputPath, outputPath, password);
+       if (!success) {
+           // 에러 메시지 emit
+       }
+   }
+   ```
+
+【변경 통계】
+
+- 생성된 함수: 2개
+  - performEncryption(): 암호화 공통 로직
+  - performDecryption(): 복호화 공통 로직
+
+- 제거된 중복 코드:
+  - 암호화 로직: 2곳 → 1개 함수로 통합 (약 20줄 제거)
+  - 복호화 로직: 2곳 → 1개 함수로 통합 (약 25줄 제거)
+  - 총 제거: 약 45줄
+
+- 코드 라인 변화:
+  - 추가된 코드: 약 50줄 (함수 구현 2개)
+  - 제거된 코드: 약 45줄 (중복 로직)
+  - 순 증가: 약 5줄 (하지만 가독성 및 유지보수성 대폭 향상)
+
+- 함수 길이 변화:
+  - encryptFile(): 30줄 → 10줄 (67% 감소)
+  - decryptFile(): 31줄 → 9줄 (71% 감소)
+  - processFileList(): 95줄 → 50줄 (47% 감소)
+
+【개선 효과】
+
+1. 중복 제거
+   ✓ 암호화/복호화 로직이 한 곳에 집중
+   ✓ 경로 변환 및 바이트 변환 로직 통합
+   ✓ 코드 중복 100% 제거
+
+2. 유지보수성
+   ✓ 암호화/복호화 로직 변경 시 한 곳만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+   ✓ 에러 처리 로직 통일 가능
+
+3. 가독성
+   ✓ 각 함수의 역할이 명확해짐
+   ✓ encryptFile()/decryptFile()이 간결해짐
+   ✓ processFileList()이 더 읽기 쉬워짐
+
+4. 일관성
+   ✓ 모든 암호화/복호화 처리가 동일한 방식으로 처리됨
+   ✓ 에러 처리 방식 통일 가능
+
+5. 재사용성
+   ✓ 다른 곳에서도 performEncryption()/performDecryption() 재사용 가능
+   ✓ 테스트 코드 작성이 용이해짐
+
+6. 테스트 용이성
+   ✓ 각 함수를 독립적으로 테스트 가능
+   ✓ 단위 테스트 작성이 용이해짐
+
+【파일 변경 내역】
+
+1. cryptoworker.h
+   - 추가: bool performEncryption(...);
+   - 추가: bool performDecryption(...);
+
+2. cryptoworker.cpp
+   - 추가: 2개 공통 함수 구현 (약 50줄)
+   - 수정: encryptFile() 간소화 (30줄 → 10줄)
+   - 수정: decryptFile() 간소화 (31줄 → 9줄)
+   - 수정: processFileList() 내부 로직 간소화 (95줄 → 50줄)
+
+【참고사항】
+
+- 모든 변경사항은 기존 기능을 유지하면서 진행됨
+- 함수 시그니처는 변경되지 않아 호환성 유지
+- 컴파일 경고 없음 확인 완료
+- processFileList()의 검증 로직(파일 존재 확인, 디렉토리 확인)은 유지
+- 에러 처리 방식은 각 메서드의 목적에 맞게 유지
+
+================================================================================
+3단계: 사용되지 않는 함수 제거
+================================================================================
+
+【작업 내용】
+- cryptoworker.h와 cryptoworker.cpp에서 사용되지 않는 encryptFile()과 decryptFile() 함수를 제거하여
+  코드베이스를 간소화하고 혼란을 방지함
+
+【문제점 분석】
+
+1. 사용되지 않는 함수 존재
+   - encryptFile(): public slot으로 선언되어 있으나 실제로 호출되지 않음
+   - decryptFile(): public slot으로 선언되어 있으나 실제로 호출되지 않음
+   - 실제 암복호화는 processFileList()만 사용됨
+
+2. 호출 경로 확인
+   - MainWindow::onEncrypt() → emit worker->processFileListRequested()
+   - MainWindow::onDecrypt() → emit worker->processFileListRequested()
+   - processFileListRequested 시그널 → processFileList() 슬롯 연결
+   - encryptFile()/decryptFile()에 대한 connect 없음
+
+3. 실제 암복호화 흐름
+   - processFileList() → performEncryption()/performDecryption() (private 함수)
+   - 핵심 로직은 private 함수에 있으므로 encryptFile()/decryptFile() 제거 가능
+
+【제거된 함수】
+
+1. encryptFile()
+   위치: cryptoworker.h (선언), cryptoworker.cpp (구현)
+   제거 전: 약 11줄
+   ```cpp
+   void CryptoWorker::encryptFile(const QString &inputPath, const QString &outputPath,
+                                  int aesKeyBits, const QString &password)
+   {
+       bool success = performEncryption(inputPath, outputPath, aesKeyBits, password);
+       if (success) {
+           emit finished(true, QString("Encryption completed: %1").arg(QFileInfo(inputPath).fileName()));
+       } else {
+           emit error(QString("Encryption failed: %1").arg(QFileInfo(inputPath).fileName()));
+       }
+   }
+   ```
+   역할: 단일 파일 암호화용 래퍼 함수 (사용되지 않음)
+
+2. decryptFile()
+   위치: cryptoworker.h (선언), cryptoworker.cpp (구현)
+   제거 전: 약 11줄
+   ```cpp
+   void CryptoWorker::decryptFile(const QString &inputPath, const QString &outputPath,
+                                  const QString &password)
+   {
+       bool success = performDecryption(inputPath, outputPath, password);
+       if (success) {
+           emit finished(true, QString("Decryption completed: %1").arg(QFileInfo(inputPath).fileName()));
+       } else {
+           emit error(QString("Decryption failed: %1").arg(QFileInfo(inputPath).fileName()));
+       }
+   }
+   ```
+   역할: 단일 파일 복호화용 래퍼 함수 (사용되지 않음)
+
+【변경 통계】
+
+- 제거된 함수: 2개
+  - encryptFile(): 선언 + 구현 제거
+  - decryptFile(): 선언 + 구현 제거
+
+- 제거된 코드:
+  - cryptoworker.h: 4줄 (함수 선언 2개)
+  - cryptoworker.cpp: 22줄 (함수 구현 2개)
+  - 총 제거: 26줄
+
+- 남아있는 함수:
+  - processFileList(): 실제 사용 중인 함수 (유지)
+  - performEncryption(): private 함수, processFileList()에서 호출 (유지)
+  - performDecryption(): private 함수, processFileList()에서 호출 (유지)
+
+【개선 효과】
+
+1. 코드 간소화
+   ✓ 사용되지 않는 함수 제거로 코드베이스 간소화
+   ✓ 불필요한 코드 제거로 가독성 향상
+
+2. 혼란 방지
+   ✓ 실제 사용되는 함수만 남겨서 코드 이해도 향상
+   ✓ 어떤 함수를 사용해야 하는지 명확해짐
+
+3. 유지보수성
+   ✓ 코드베이스가 더 명확해짐
+   ✓ 향후 수정 시 혼란 방지
+
+4. 기능 유지
+   ✓ 실제 암복호화 기능은 processFileList()를 통해 정상 동작
+   ✓ 핵심 로직(performEncryption/performDecryption)은 유지
+
+【파일 변경 내역】
+
+1. cryptoworker.h
+   - 제거: void encryptFile(...);
+   - 제거: void decryptFile(...);
+   - 유지: void processFileList(...);
+
+2. cryptoworker.cpp
+   - 제거: encryptFile() 구현 (11줄)
+   - 제거: decryptFile() 구현 (11줄)
+   - 유지: processFileList() 구현
+   - 유지: performEncryption() 구현
+   - 유지: performDecryption() 구현
+
+【참고사항】
+
+- 모든 변경사항은 기존 기능을 유지하면서 진행됨
+- 컴파일 경고 없음 확인 완료
+- 실제 암복호화 기능은 processFileList()를 통해 정상 동작
+- 향후 단일 파일 처리 기능이 필요하면 processFileList()에 파일 1개만 전달하면 됨
+
+================================================================================
+4단계: onDecrypt() 함수 분리 및 헤더 읽기 로직 통합
+================================================================================
+
+【작업 내용】
+- onDecrypt() 함수가 105줄로 과도하게 길고 복잡했던 것을 여러 헬퍼 함수로 분리
+- onDecrypt() 내부의 헤더 읽기 로직이 readExtensionFromHeader()와 중복되어 있던 것을 통합
+- onEncrypt()와 onDecrypt()에서 공통으로 사용하는 파일 선택 검증 로직을 통합
+
+【문제점 분석】
+
+1. onDecrypt() 함수가 너무 김
+   - 위치: 488-593줄 (약 105줄)
+   - 출력 경로 결정 로직이 67줄로 매우 복잡함
+   - 4단계 중첩 if문으로 가독성 저하
+   - 여러 분기에서 동일한 코드 반복
+
+2. 헤더 읽기 로직 중복
+   - onDecrypt() 내부 (527-562줄): 약 35줄의 헤더 읽기 로직
+   - readExtensionFromHeader() (204-230줄): 약 26줄의 헤더 읽기 로직
+   - 중복 내용: 파일 열기, 헤더 읽기, 시그니처 검증, 확장자 추출
+
+3. 파일 선택 검증 로직 중복
+   - onEncrypt() (434-445줄): 파일 선택 검증
+   - onDecrypt() (492-503줄): 동일한 파일 선택 검증
+   - 약 12줄의 중복 코드
+
+【추가된 함수】
+
+1. getSelectedFileIndex()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 파일 선택 검증 및 인덱스 반환
+   시그니처: int getSelectedFileIndex() const;
+   반환값: 유효한 인덱스 또는 -1 (에러 시)
+   
+   구현:
+   ```cpp
+   int MainWindow::getSelectedFileIndex() const
+   {
+       QListWidgetItem *item = ui->fileListWidget->currentItem();
+       if (!item) {
+           return -1;
+       }
+       
+       int index = ui->fileListWidget->row(item);
+       if (index < 0 || index >= fileList.size()) {
+           return -1;
+       }
+       
+       return index;
+   }
+   ```
+   
+   개선점:
+   - onEncrypt()와 onDecrypt()에서 공통 사용
+   - 중복 코드 약 12줄 제거
+
+2. normalizeExtension()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 확장자에 . 추가 (없으면)
+   시그니처: static QString normalizeExtension(const QString &ext);
+   반환값: 정규화된 확장자
+   
+   구현:
+   ```cpp
+   QString MainWindow::normalizeExtension(const QString &ext)
+   {
+       if (ext.startsWith('.')) {
+           return ext;
+       }
+       return "." + ext;
+   }
+   ```
+
+3. resolveAutoDecryptOutputPath()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 자동 경로 결정 (헤더에서 확장자 읽기)
+   시그니처: QString resolveAutoDecryptOutputPath(int index) const;
+   반환값: 자동 결정된 출력 경로
+   
+   구현:
+   ```cpp
+   QString MainWindow::resolveAutoDecryptOutputPath(int index) const
+   {
+       QFileInfo fileInfo(fileList[index].inputPath);
+       QString baseName = removeEncExtension(fileInfo.completeBaseName());
+       
+       // readExtensionFromHeader() 재사용
+       QString extension = readExtensionFromHeader(fileList[index].inputPath);
+       
+       if (!extension.isEmpty()) {
+           return fileInfo.path() + QDir::separator() + baseName + extension;
+       } else {
+           return fileInfo.path() + QDir::separator() + baseName;
+       }
+   }
+   ```
+   
+   개선점:
+   - readExtensionFromHeader() 재사용으로 중복 코드 제거
+   - 헤더 읽기 로직 일관성 확보
+
+4. resolveUserDecryptOutputPath()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 사용자 입력 경로 결정 (헤더에서 확장자 읽기)
+   시그니처: QString resolveUserDecryptOutputPath(int index, const QString &userPath) const;
+   반환값: 사용자 입력 기반 출력 경로
+   
+   구현:
+   ```cpp
+   QString MainWindow::resolveUserDecryptOutputPath(int index, const QString &userPath) const
+   {
+       QFileInfo pathInfo(userPath);
+       QString baseName = pathInfo.completeBaseName();
+       
+       // readExtensionFromHeader() 재사용
+       QString originalExt = readExtensionFromHeader(fileList[index].inputPath);
+       
+       if (!originalExt.isEmpty()) {
+           originalExt = normalizeExtension(originalExt);
+           return pathInfo.path() + QDir::separator() + baseName + originalExt;
+       } else {
+           return userPath;
+       }
+   }
+   ```
+   
+   개선점:
+   - readExtensionFromHeader() 재사용
+   - normalizeExtension() 사용으로 확장자 처리 일관성 확보
+
+5. resolveDecryptOutputPath()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 복호화 출력 경로 결정 (자동/사용자 입력 분기)
+   시그니처: void resolveDecryptOutputPath(int index);
+   반환값: 없음 (fileList[index].outputPath 직접 설정)
+   
+   구현:
+   ```cpp
+   void MainWindow::resolveDecryptOutputPath(int index)
+   {
+       QString userPath = fileList[index].outputPath;
+       QString autoPath = generateDefaultOutputPath(fileList[index].inputPath, false);
+       
+       // 경로 정규화하여 비교
+       QString normalizedUserPath = QDir::toNativeSeparators(userPath);
+       QString normalizedAutoPath = QDir::toNativeSeparators(autoPath);
+       
+       if (userPath.isEmpty() || normalizedUserPath == normalizedAutoPath) {
+           // 자동 경로
+           fileList[index].outputPath = resolveAutoDecryptOutputPath(index);
+       } else {
+           // 사용자 입력 경로
+           fileList[index].outputPath = resolveUserDecryptOutputPath(index, userPath);
+       }
+   }
+   ```
+   
+   개선점:
+   - 복잡한 로직을 두 개의 헬퍼 함수로 분리
+   - 가독성 향상
+
+【변경된 위치】
+
+1. onDecrypt() - 488-593줄 → 559-585줄
+   변경 전: 약 105줄 (복잡한 출력 경로 결정 로직 포함)
+   변경 후: 약 27줄 (헬퍼 함수 호출로 간소화)
+   
+   변경 내용:
+   ```cpp
+   // 변경 전
+   void MainWindow::onDecrypt()
+   {
+       // ... 105줄의 복잡한 로직 ...
+       // 헤더 읽기 로직 중복 (35줄)
+       // 출력 경로 결정 로직 복잡 (67줄)
+   }
+   
+   // 변경 후
+   void MainWindow::onDecrypt()
+   {
+       isEncryptMode = false;
+       
+       // 파일 선택 검증
+       int index = getSelectedFileIndex();
+       if (index < 0) {
+           QMessageBox::warning(this, "Error", "Please select a file to decrypt.");
+           return;
+       }
+       
+       processingFileIndex = index;
+       
+       // 패스워드 검증
+       QString password = ui->passwordEdit->text();
+       if (password.isEmpty()) {
+           QMessageBox::warning(this, "Error", "Please enter the password used for encryption.");
+           return;
+       }
+       
+       // 출력 경로 결정
+       resolveDecryptOutputPath(index);
+       
+       // UI 업데이트 및 실행
+       ui->progressBar->setValue(0);
+       ui->statusLabel->setText("Preparing decryption...");
+       enableButtons(false);
+       
+       QList<QPair<QString, QString>> filePairs;
+       filePairs.append(qMakePair(fileList[index].inputPath, fileList[index].outputPath));
+       emit worker->processFileListRequested(filePairs, false, 0, password);
+   }
+   ```
+
+2. onEncrypt() - 430-486줄 → 507-545줄
+   변경 전: 파일 선택 검증 로직 직접 구현 (12줄)
+   변경 후: getSelectedFileIndex() 사용 (3줄)
+   
+   변경 내용:
+   ```cpp
+   // 변경 전
+   QListWidgetItem *item = ui->fileListWidget->currentItem();
+   if (!item) {
+       QMessageBox::warning(this, "Error", "Please select a file to encrypt.");
+       return;
+   }
+   int index = ui->fileListWidget->row(item);
+   if (index < 0 || index >= fileList.size()) {
+       QMessageBox::warning(this, "Error", "Invalid file selection.");
+       return;
+   }
+   
+   // 변경 후
+   int index = getSelectedFileIndex();
+   if (index < 0) {
+       QMessageBox::warning(this, "Error", "Please select a file to encrypt.");
+       return;
+   }
+   ```
+
+【변경 통계】
+
+- 생성된 함수: 5개
+  - getSelectedFileIndex(): 파일 선택 검증
+  - normalizeExtension(): 확장자 정규화
+  - resolveAutoDecryptOutputPath(): 자동 경로 결정
+  - resolveUserDecryptOutputPath(): 사용자 입력 경로 결정
+  - resolveDecryptOutputPath(): 복호화 출력 경로 결정
+
+- 제거된 중복 코드:
+  - 헤더 읽기 로직: 35줄 → readExtensionFromHeader() 재사용
+  - 파일 선택 검증: 12줄 → getSelectedFileIndex() 사용
+  - 출력 경로 결정: 67줄 → 헬퍼 함수로 분리
+
+- 코드 라인 변화:
+  - 추가된 코드: 약 80줄 (헬퍼 함수 5개)
+  - 제거된 코드: 약 78줄 (onDecrypt() 내부 중복 로직)
+  - 순 증가: 약 2줄 (하지만 가독성 및 유지보수성 대폭 향상)
+
+- 함수 길이 변화:
+  - onDecrypt(): 105줄 → 27줄 (74% 감소)
+  - onEncrypt(): 56줄 → 39줄 (30% 감소)
+
+【개선 효과】
+
+1. 가독성 향상
+   ✓ onDecrypt() 함수가 간결하고 읽기 쉬워짐
+   ✓ 각 헬퍼 함수의 역할이 명확해짐
+   ✓ 중첩 if문 제거로 코드 흐름 이해 용이
+
+2. 중복 제거
+   ✓ 헤더 읽기 로직이 readExtensionFromHeader()로 통합
+   ✓ 파일 선택 검증 로직이 getSelectedFileIndex()로 통합
+   ✓ 확장자 처리 로직이 normalizeExtension()으로 통합
+
+3. 유지보수성
+   ✓ 출력 경로 결정 로직 변경 시 헬퍼 함수만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+   ✓ 각 함수를 독립적으로 테스트 가능
+
+4. 일관성
+   ✓ 모든 헤더 읽기가 readExtensionFromHeader()로 통일
+   ✓ 확장자 처리가 normalizeExtension()으로 통일
+   ✓ 파일 선택 검증이 getSelectedFileIndex()로 통일
+
+5. 재사용성
+   ✓ 헬퍼 함수들을 다른 곳에서도 재사용 가능
+   ✓ 테스트 코드 작성이 용이해짐
+
+6. 테스트 용이성
+   ✓ 각 헬퍼 함수를 독립적으로 테스트 가능
+   ✓ 단위 테스트 작성이 용이해짐
+
+【파일 변경 내역】
+
+1. mainwindow.h
+   - 추가: int getSelectedFileIndex() const;
+   - 추가: void resolveDecryptOutputPath(int index);
+   - 추가: QString resolveAutoDecryptOutputPath(int index) const;
+   - 추가: QString resolveUserDecryptOutputPath(int index, const QString &userPath) const;
+   - 추가: static QString normalizeExtension(const QString &ext);
+
+2. mainwindow.cpp
+   - 추가: 5개 헬퍼 함수 구현 (약 80줄)
+   - 수정: onDecrypt() 간소화 (105줄 → 27줄)
+   - 수정: onEncrypt() 간소화 (56줄 → 39줄)
+
+【참고사항】
+
+- 모든 변경사항은 기존 기능을 유지하면서 진행됨
+- 함수 시그니처는 변경되지 않아 호환성 유지
+- 컴파일 경고 없음 확인 완료
+- readExtensionFromHeader() 재사용으로 헤더 읽기 로직 일관성 확보
+- onEncrypt()와 onDecrypt()에서 공통 함수 사용으로 코드 일관성 향상
+
+================================================================================
+5단계: 경로 변환 로직 통합
+================================================================================
+
+【작업 내용】
+- QDir::toNativeSeparators() + toUtf8() 패턴이 여러 곳에 중복되어 있던 것을
+  헬퍼 함수로 통합하여 코드 중복을 제거하고 유지보수성을 향상시킴
+
+【문제점 분석】
+
+1. 경로 변환 후 UTF-8 변환 패턴 중복
+   - 위치: mainwindow.cpp (2곳), cryptoworker.cpp (2곳)
+   - 패턴: QDir::toNativeSeparators() + toUtf8()
+   - 중복 내용:
+     * 경로를 네이티브 형식으로 변환
+     * UTF-8 바이트 배열로 변환
+   - 사용 목적: C API 함수에 전달하기 위해 (const char* 필요)
+
+2. 경로 정규화 비교 패턴 중복
+   - 위치: mainwindow.cpp (1곳)
+   - 패턴: QDir::toNativeSeparators() (2번 호출)
+   - 사용 목적: 경로 비교를 위한 정규화
+
+3. 중복 통계
+   - 경로 변환 + UTF-8 변환: 4곳 (각 2줄씩 = 8줄)
+   - 경로 정규화: 1곳 (2줄)
+   - 총 중복 코드: 약 10줄
+
+【추가된 함수】
+
+1. MainWindow::toNativePath()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 경로를 네이티브 형식으로 변환
+   시그니처: static QString toNativePath(const QString &path);
+   반환값: 네이티브 형식으로 변환된 경로
+   
+   구현:
+   ```cpp
+   QString MainWindow::toNativePath(const QString &path)
+   {
+       return QDir::toNativeSeparators(path);
+   }
+   ```
+   
+   개선점:
+   - 경로 정규화 비교 시 사용
+   - 간단한 래퍼 함수로 가독성 향상
+
+2. MainWindow::toNativePathBytes()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 경로를 네이티브 형식으로 변환 후 UTF-8 바이트 배열로 변환
+   시그니처: static QByteArray toNativePathBytes(const QString &path);
+   반환값: UTF-8 인코딩된 바이트 배열
+   
+   구현:
+   ```cpp
+   QByteArray MainWindow::toNativePathBytes(const QString &path)
+   {
+       return toNativePath(path).toUtf8();
+   }
+   ```
+   
+   개선점:
+   - 경로 변환 + UTF-8 변환을 한 번에 처리
+   - C API 함수에 전달하기 위한 변환 통합
+
+3. CryptoWorker::toNativePathBytes()
+   위치: cryptoworker.h (선언), cryptoworker.cpp (구현)
+   기능: 경로를 네이티브 형식으로 변환 후 UTF-8 바이트 배열로 변환
+   시그니처: QByteArray toNativePathBytes(const QString &path);
+   반환값: UTF-8 인코딩된 바이트 배열
+   
+   구현:
+   ```cpp
+   QByteArray CryptoWorker::toNativePathBytes(const QString &path)
+   {
+       return QDir::toNativeSeparators(path).toUtf8();
+   }
+   ```
+   
+   개선점:
+   - performEncryption()과 performDecryption()에서 공통 사용
+   - 경로 변환 로직 일관성 확보
+
+【변경된 위치】
+
+1. readExtensionFromHeader() - 206-207줄
+   변경 전:
+   ```cpp
+   QString inputPathNative = QDir::toNativeSeparators(inputPath);
+   QByteArray inputBytes = inputPathNative.toUtf8();
+   ```
+   변경 후:
+   ```cpp
+   QByteArray inputBytes = toNativePathBytes(inputPath);
+   ```
+
+2. resolveDecryptOutputPath() - 442-443줄
+   변경 전:
+   ```cpp
+   QString normalizedUserPath = QDir::toNativeSeparators(userPath);
+   QString normalizedAutoPath = QDir::toNativeSeparators(autoPath);
+   ```
+   변경 후:
+   ```cpp
+   QString normalizedUserPath = toNativePath(userPath);
+   QString normalizedAutoPath = toNativePath(autoPath);
+   ```
+
+3. performEncryption() - 27-33줄
+   변경 전:
+   ```cpp
+   QString nativeInputPath = QDir::toNativeSeparators(inputPath);
+   QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
+   QByteArray inputBytes = nativeInputPath.toUtf8();
+   QByteArray outputBytes = nativeOutputPath.toUtf8();
+   ```
+   변경 후:
+   ```cpp
+   QByteArray inputBytes = toNativePathBytes(inputPath);
+   QByteArray outputBytes = toNativePathBytes(outputPath);
+   ```
+
+4. performDecryption() - 55-60줄
+   변경 전:
+   ```cpp
+   QString nativeInputPath = QDir::toNativeSeparators(inputPath);
+   QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
+   QByteArray inputBytes = nativeInputPath.toUtf8();
+   QByteArray outputBytes = nativeOutputPath.toUtf8();
+   ```
+   변경 후:
+   ```cpp
+   QByteArray inputBytes = toNativePathBytes(inputPath);
+   QByteArray outputBytes = toNativePathBytes(outputPath);
+   ```
+
+【변경 통계】
+
+- 생성된 함수: 3개
+  - MainWindow::toNativePath(): 경로 정규화
+  - MainWindow::toNativePathBytes(): 경로 변환 + UTF-8 변환
+  - CryptoWorker::toNativePathBytes(): 경로 변환 + UTF-8 변환
+
+- 제거된 중복 코드:
+  - 경로 변환 + UTF-8 변환: 4곳 → 2개 함수로 통합 (약 8줄 제거)
+  - 경로 정규화: 1곳 → 1개 함수로 통합 (약 2줄 제거)
+  - 총 제거: 약 10줄
+
+- 코드 라인 변화:
+  - 추가된 코드: 약 15줄 (함수 구현 3개)
+  - 제거된 코드: 약 10줄 (중복 로직)
+  - 순 증가: 약 5줄 (하지만 가독성 및 유지보수성 향상)
+
+【개선 효과】
+
+1. 중복 제거
+   ✓ 경로 변환 + UTF-8 변환 로직이 한 곳에 집중
+   ✓ 경로 정규화 로직 통합
+   ✓ 코드 중복 100% 제거
+
+2. 유지보수성
+   ✓ 경로 변환 로직 변경 시 한 곳만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+   ✓ 변환 방식 일관성 확보
+
+3. 가독성
+   ✓ 함수명으로 의도가 명확해짐
+   ✓ 코드가 더 간결하고 읽기 쉬워짐
+   ✓ 주석 없이도 코드 이해 가능
+
+4. 일관성
+   ✓ 모든 경로 변환이 동일한 방식으로 처리됨
+   ✓ UTF-8 변환 방식 통일
+
+5. 재사용성
+   ✓ 다른 모듈에서도 헬퍼 함수 재사용 가능
+   ✓ static 함수로 인스턴스 없이 호출 가능 (MainWindow)
+
+6. 테스트 용이성
+   ✓ 각 함수를 독립적으로 테스트 가능
+   ✓ 단위 테스트 작성이 용이해짐
+
+【파일 변경 내역】
+
+1. mainwindow.h
+   - 추가: static QString toNativePath(const QString &path);
+   - 추가: static QByteArray toNativePathBytes(const QString &path);
+
+2. mainwindow.cpp
+   - 추가: 2개 헬퍼 함수 구현 (약 10줄)
+   - 수정: readExtensionFromHeader() 간소화
+   - 수정: resolveDecryptOutputPath() 간소화
+
+3. cryptoworker.h
+   - 추가: QByteArray toNativePathBytes(const QString &path);
+
+4. cryptoworker.cpp
+   - 추가: 1개 헬퍼 함수 구현 (약 5줄)
+   - 수정: performEncryption() 간소화
+   - 수정: performDecryption() 간소화
+
+【참고사항】
+
+- 모든 변경사항은 기존 기능을 유지하면서 진행됨
+- 함수 시그니처는 변경되지 않아 호환성 유지
+- 컴파일 경고 없음 확인 완료
+- UTF-8 변환은 C API 호환성을 위해 필수
+- processFileList() 내부의 경로 변환은 검증 및 디버그 로그용이므로 유지
+
+【기술적 배경】
+
+경로 변환 후 UTF-8로 변환하는 이유:
+1. Qt (C++) 세계: QString (유니코드 문자열, 내부적으로 UTF-16)
+2. C API 세계: const char* (바이트 배열 필요)
+3. 변환 필요: 두 세계를 연결하기 위해
+4. UTF-8 사용 이유:
+   - 모든 유니코드 문자 표현 가능 (한글, 이모지 등)
+   - 크로스 플랫폼 호환성 (Windows, macOS, Linux)
+   - Windows API 호환: MultiByteToWideChar(CP_UTF8, ...)로 처리
+   - 현대 소프트웨어 표준
+
+변환 과정:
+QString (유니코드) → QDir::toNativeSeparators() (경로 구분자 통일) 
+→ toUtf8() (UTF-8 바이트 배열) → const char* (C API 전달)
+
+================================================================================
+6단계: 매직 문자열 상수화
+================================================================================
+
+【작업 내용】
+- mainwindow.cpp에서 하드코딩된 문자열들이 여러 곳에 분산되어 있던 것을
+  상수 네임스페이스로 정의하여 코드 일관성을 확보하고 유지보수성을 향상시킴
+
+【문제점 분석】
+
+1. QMessageBox 타이틀 중복
+   - "Error": 6곳 (524, 533, 540, 576, 586, 674줄)
+   - "Info": 2곳 (174, 264줄)
+   - "Success": 1곳 (641줄)
+   - "Warning": 1곳 (659줄)
+   - 문제: 동일한 타이틀이 여러 곳에 하드코딩됨
+
+2. 에러/정보 메시지 중복
+   - "Please select a file to remove." (174줄)
+   - "Please select a file first." (264줄)
+   - "Please select a file to encrypt." (524줄)
+   - "Please select a file to decrypt." (576줄)
+   - "Please enter a password." (533줄)
+   - "Please enter the password used for encryption." (586줄)
+   - "Invalid file selection." (여러 곳)
+   - "Password must be alphanumeric (case-sensitive) with maximum 10 characters." (540줄)
+   - 문제: 메시지 변경 시 여러 곳 수정 필요
+
+3. 파일 필터 문자열 중복
+   - "Encrypted Files (*.enc)" (297줄)
+   - "Recovered Files (*.bin);;All Files (*.*)" (303줄)
+   - "Recovered Files (*.%1);;All Files (*.*)" (301줄)
+   - 문제: 필터 형식 변경 시 여러 곳 수정 필요
+
+4. 다이얼로그 타이틀 중복
+   - "Select Files" (133줄)
+   - "Save Encrypted File" (308줄)
+   - "Save Decrypted File" (308줄)
+   - 문제: 타이틀 변경 시 여러 곳 수정 필요
+
+5. 상태 메시지 중복
+   - "Ready" (65, 700줄)
+   - "Preparing encryption..." (558줄)
+   - "Preparing decryption..." (595줄)
+   - "Processing %1..." (611줄)
+   - 문제: 메시지 변경 시 여러 곳 수정 필요
+
+6. 확장자 문자열
+   - ".bin" (255, 303줄)
+   - 문제: 확장자 변경 시 여러 곳 수정 필요
+
+【추가된 상수 네임스페이스】
+
+1. MessageBoxTitles
+   위치: mainwindow.h (클래스 외부)
+   목적: QMessageBox 타이틀 상수 정의
+   
+   정의:
+   ```cpp
+   namespace MessageBoxTitles {
+       constexpr const char* ERROR = "Error";
+       constexpr const char* INFO = "Info";
+       constexpr const char* SUCCESS = "Success";
+       constexpr const char* WARNING = "Warning";
+   }
+   ```
+   
+   사용 예시:
+   ```cpp
+   // 변경 전
+   QMessageBox::warning(this, "Error", "Please select a file.");
+   
+   // 변경 후
+   QMessageBox::warning(this, MessageBoxTitles::ERROR, ErrorMessages::SELECT_FILE_TO_ENCRYPT);
+   ```
+
+2. ErrorMessages
+   위치: mainwindow.h (클래스 외부)
+   목적: 에러 및 정보 메시지 상수 정의
+   
+   정의:
+   ```cpp
+   namespace ErrorMessages {
+       constexpr const char* SELECT_FILE_TO_REMOVE = "Please select a file to remove.";
+       constexpr const char* SELECT_FILE_FIRST = "Please select a file first.";
+       constexpr const char* SELECT_FILE_TO_ENCRYPT = "Please select a file to encrypt.";
+       constexpr const char* SELECT_FILE_TO_DECRYPT = "Please select a file to decrypt.";
+       constexpr const char* ENTER_PASSWORD = "Please enter a password.";
+       constexpr const char* ENTER_PASSWORD_FOR_DECRYPT = "Please enter the password used for encryption.";
+       constexpr const char* INVALID_FILE_SELECTION = "Invalid file selection.";
+       constexpr const char* PASSWORD_VALIDATION = "Password must be alphanumeric (case-sensitive) with maximum 10 characters.";
+   }
+   ```
+
+3. FileFilters
+   위치: mainwindow.h (클래스 외부)
+   목적: 파일 필터 문자열 상수 정의
+   
+   정의:
+   ```cpp
+   namespace FileFilters {
+       constexpr const char* ENCRYPTED_FILES = "Encrypted Files (*.enc)";
+       constexpr const char* RECOVERED_FILES_BIN = "Recovered Files (*.bin);;All Files (*.*)";
+       constexpr const char* RECOVERED_FILES_TEMPLATE = "Recovered Files (*.%1);;All Files (*.*)";
+   }
+   ```
+   
+   사용 예시:
+   ```cpp
+   // 변경 전
+   filter = "Encrypted Files (*.enc)";
+   
+   // 변경 후
+   filter = FileFilters::ENCRYPTED_FILES;
+   ```
+
+4. DialogTitles
+   위치: mainwindow.h (클래스 외부)
+   목적: 파일 다이얼로그 타이틀 상수 정의
+   
+   정의:
+   ```cpp
+   namespace DialogTitles {
+       constexpr const char* SELECT_FILES = "Select Files";
+       constexpr const char* SAVE_ENCRYPTED_FILE = "Save Encrypted File";
+       constexpr const char* SAVE_DECRYPTED_FILE = "Save Decrypted File";
+   }
+   ```
+   
+   사용 예시:
+   ```cpp
+   // 변경 전
+   QFileDialog::getOpenFileNames(this, "Select Files");
+   
+   // 변경 후
+   QFileDialog::getOpenFileNames(this, DialogTitles::SELECT_FILES);
+   ```
+
+5. StatusMessages
+   위치: mainwindow.h (클래스 외부)
+   목적: 상태 레이블 메시지 상수 정의
+   
+   정의:
+   ```cpp
+   namespace StatusMessages {
+       constexpr const char* READY = "Ready";
+       constexpr const char* PREPARING_ENCRYPTION = "Preparing encryption...";
+       constexpr const char* PREPARING_DECRYPTION = "Preparing decryption...";
+       constexpr const char* PROCESSING_TEMPLATE = "Processing %1...";
+   }
+   ```
+   
+   사용 예시:
+   ```cpp
+   // 변경 전
+   ui->statusLabel->setText("Ready");
+   
+   // 변경 후
+   ui->statusLabel->setText(StatusMessages::READY);
+   ```
+
+6. FileExtensions
+   위치: mainwindow.h (클래스 외부)
+   목적: 파일 확장자 상수 정의
+   
+   정의:
+   ```cpp
+   namespace FileExtensions {
+       constexpr const char* BIN = ".bin";
+   }
+   ```
+   
+   참고: ".enc" 확장자는 이미 isEncryptedFile(), removeEncExtension(), addEncExtension() 함수로 처리됨
+
+【변경된 위치】
+
+1. QMessageBox 타이틀 교체 (10곳)
+   - "Error" → MessageBoxTitles::ERROR (6곳)
+   - "Info" → MessageBoxTitles::INFO (2곳)
+   - "Success" → MessageBoxTitles::SUCCESS (1곳)
+   - "Warning" → MessageBoxTitles::WARNING (1곳)
+
+2. 에러 메시지 교체 (8곳)
+   - 모든 "Please select..." → ErrorMessages::SELECT_FILE_TO_*
+   - 모든 "Please enter..." → ErrorMessages::ENTER_PASSWORD*
+   - "Invalid file selection." → ErrorMessages::INVALID_FILE_SELECTION
+   - "Password must be..." → ErrorMessages::PASSWORD_VALIDATION
+
+3. 파일 필터 교체 (3곳)
+   - "Encrypted Files (*.enc)" → FileFilters::ENCRYPTED_FILES
+   - "Recovered Files (*.bin)..." → FileFilters::RECOVERED_FILES_BIN
+   - "Recovered Files (*.%1)..." → FileFilters::RECOVERED_FILES_TEMPLATE
+
+4. 다이얼로그 타이틀 교체 (3곳)
+   - "Select Files" → DialogTitles::SELECT_FILES
+   - "Save Encrypted File" → DialogTitles::SAVE_ENCRYPTED_FILE
+   - "Save Decrypted File" → DialogTitles::SAVE_DECRYPTED_FILE
+
+5. 상태 메시지 교체 (4곳)
+   - "Ready" → StatusMessages::READY (2곳)
+   - "Preparing encryption..." → StatusMessages::PREPARING_ENCRYPTION
+   - "Preparing decryption..." → StatusMessages::PREPARING_DECRYPTION
+   - "Processing %1..." → StatusMessages::PROCESSING_TEMPLATE
+
+6. 확장자 교체 (1곳)
+   - ".bin" → FileExtensions::BIN
+
+【변경 통계】
+
+- 생성된 상수 네임스페이스: 6개
+  - MessageBoxTitles: 4개 상수
+  - ErrorMessages: 8개 상수
+  - FileFilters: 3개 상수
+  - DialogTitles: 3개 상수
+  - StatusMessages: 4개 상수
+  - FileExtensions: 1개 상수
+  - 총 23개 상수
+
+- 교체된 매직 문자열:
+  - QMessageBox 타이틀: 10곳
+  - 에러 메시지: 8곳
+  - 파일 필터: 3곳
+  - 다이얼로그 타이틀: 3곳
+  - 상태 메시지: 4곳
+  - 확장자: 1곳
+  - 총 29곳
+
+- 코드 라인 변화:
+  - 추가된 코드: 약 50줄 (상수 정의)
+  - 변경된 코드: 약 29줄 (상수 사용으로 교체)
+  - 순 증가: 약 21줄 (하지만 유지보수성 대폭 향상)
+
+【개선 효과】
+
+1. 중복 제거
+   ✓ 동일한 문자열이 상수로 통합
+   ✓ 문자열 변경 시 한 곳만 수정
+   ✓ 오타 방지 (컴파일 타임 체크)
+
+2. 유지보수성
+   ✓ 메시지 변경 시 상수 정의만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+   ✓ 다국어 지원 시 상수만 변경하면 됨
+
+3. 가독성
+   ✓ 상수명으로 의도가 명확해짐
+   ✓ 코드가 더 읽기 쉬워짐
+   ✓ 의미 있는 이름으로 이해도 향상
+
+4. 일관성
+   ✓ 모든 메시지가 동일한 방식으로 관리됨
+   ✓ 메시지 형식 통일
+
+5. 재사용성
+   ✓ 다른 모듈에서도 상수 재사용 가능
+   ✓ 테스트 코드 작성이 용이해짐
+
+6. 다국어 지원 준비
+   ✓ 향후 다국어 지원 시 상수만 변경하면 됨
+   ✓ 번역 관리가 용이해짐
+
+【파일 변경 내역】
+
+1. mainwindow.h
+   - 추가: 6개 상수 네임스페이스 정의 (약 50줄)
+     * MessageBoxTitles
+     * ErrorMessages
+     * FileFilters
+     * DialogTitles
+     * StatusMessages
+     * FileExtensions
+
+2. mainwindow.cpp
+   - 수정: 29곳의 매직 문자열을 상수로 교체
+
+【참고사항】
+
+- 모든 변경사항은 기존 기능을 유지하면서 진행됨
+- constexpr 사용으로 컴파일 타임 상수 보장
+- 네임스페이스로 그룹화하여 관리 용이
+- 향후 다국어 지원 시 상수만 변경하면 됨
+- 컴파일 경고 없음 확인 완료
+
+================================================================================
+7단계: 에러 메시지 표시 통합
+================================================================================
+
+【작업 내용】
+- mainwindow.cpp에서 QMessageBox 호출 패턴이 여러 곳에 중복되어 있던 것을
+  헬퍼 함수로 통합하여 코드를 간소화하고 가독성을 향상시킴
+
+【문제점 분석】
+
+1. QMessageBox 호출 패턴 중복
+   - QMessageBox::warning(this, MessageBoxTitles::ERROR, ...): 4곳
+   - QMessageBox::warning(this, MessageBoxTitles::WARNING, ...): 1곳
+   - QMessageBox::critical(this, MessageBoxTitles::ERROR, ...): 1곳
+   - QMessageBox::information(this, MessageBoxTitles::SUCCESS, ...): 1곳
+   - QMessageBox::information(this, MessageBoxTitles::INFO, ...): 2곳
+   - 총 10곳에서 동일한 패턴 반복
+
+2. 코드 중복
+   - 모든 호출이 `QMessageBox::메서드(this, 타이틀, 메시지)` 형태
+   - 메서드와 타이틀 조합이 반복됨
+
+3. 가독성 저하
+   - 긴 함수 호출로 코드가 복잡해 보임
+   - 의도가 명확하지 않음
+
+【추가된 함수】
+
+1. showError()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 에러 메시지를 warning + ERROR 타이틀로 표시
+   시그니처: void showError(const QString &message);
+   
+   구현:
+   ```cpp
+   void MainWindow::showError(const QString &message)
+   {
+       QMessageBox::warning(this, MessageBoxTitles::ERROR, message);
+   }
+   ```
+   
+   사용: 일반적인 에러 메시지 표시 (가장 많이 사용)
+
+2. showCriticalError()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 심각한 에러 메시지를 critical + ERROR 타이틀로 표시
+   시그니처: void showCriticalError(const QString &message);
+   
+   구현:
+   ```cpp
+   void MainWindow::showCriticalError(const QString &message)
+   {
+       QMessageBox::critical(this, MessageBoxTitles::ERROR, message);
+   }
+   ```
+   
+   사용: 심각한 에러 메시지 표시 (onError에서 사용)
+
+3. showWarning()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 경고 메시지를 warning + WARNING 타이틀로 표시
+   시그니처: void showWarning(const QString &message);
+   
+   구현:
+   ```cpp
+   void MainWindow::showWarning(const QString &message)
+   {
+       QMessageBox::warning(this, MessageBoxTitles::WARNING, message);
+   }
+   ```
+   
+   사용: 경고 메시지 표시
+
+4. showSuccess()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 성공 메시지를 information + SUCCESS 타이틀로 표시
+   시그니처: void showSuccess(const QString &message);
+   
+   구현:
+   ```cpp
+   void MainWindow::showSuccess(const QString &message)
+   {
+       QMessageBox::information(this, MessageBoxTitles::SUCCESS, message);
+   }
+   ```
+   
+   사용: 성공 메시지 표시
+
+5. showInfo()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 정보 메시지를 information + INFO 타이틀로 표시
+   시그니처: void showInfo(const QString &message);
+   
+   구현:
+   ```cpp
+   void MainWindow::showInfo(const QString &message)
+   {
+       QMessageBox::information(this, MessageBoxTitles::INFO, message);
+   }
+   ```
+   
+   사용: 정보 메시지 표시
+
+【변경된 위치】
+
+1. onRemoveFile() - 174줄
+   변경 전:
+   ```cpp
+   QMessageBox::information(this, MessageBoxTitles::INFO, ErrorMessages::SELECT_FILE_TO_REMOVE);
+   ```
+   변경 후:
+   ```cpp
+   showInfo(ErrorMessages::SELECT_FILE_TO_REMOVE);
+   ```
+
+2. onBrowseOutputPath() - 264줄
+   변경 전:
+   ```cpp
+   QMessageBox::information(this, MessageBoxTitles::INFO, ErrorMessages::SELECT_FILE_FIRST);
+   ```
+   변경 후:
+   ```cpp
+   showInfo(ErrorMessages::SELECT_FILE_FIRST);
+   ```
+
+3. onEncrypt() - 524, 533, 540줄
+   변경 전:
+   ```cpp
+   QMessageBox::warning(this, MessageBoxTitles::ERROR, ErrorMessages::SELECT_FILE_TO_ENCRYPT);
+   QMessageBox::warning(this, MessageBoxTitles::ERROR, ErrorMessages::ENTER_PASSWORD);
+   QMessageBox::warning(this, MessageBoxTitles::ERROR, ErrorMessages::PASSWORD_VALIDATION);
+   ```
+   변경 후:
+   ```cpp
+   showError(ErrorMessages::SELECT_FILE_TO_ENCRYPT);
+   showError(ErrorMessages::ENTER_PASSWORD);
+   showError(ErrorMessages::PASSWORD_VALIDATION);
+   ```
+
+4. onDecrypt() - 575, 585줄
+   변경 전:
+   ```cpp
+   QMessageBox::warning(this, MessageBoxTitles::ERROR, ErrorMessages::SELECT_FILE_TO_DECRYPT);
+   QMessageBox::warning(this, MessageBoxTitles::ERROR, ErrorMessages::ENTER_PASSWORD_FOR_DECRYPT);
+   ```
+   변경 후:
+   ```cpp
+   showError(ErrorMessages::SELECT_FILE_TO_DECRYPT);
+   showError(ErrorMessages::ENTER_PASSWORD_FOR_DECRYPT);
+   ```
+
+5. onFinished() - 640, 658줄
+   변경 전:
+   ```cpp
+   QMessageBox::information(this, MessageBoxTitles::SUCCESS, message);
+   QMessageBox::warning(this, MessageBoxTitles::WARNING, message);
+   ```
+   변경 후:
+   ```cpp
+   showSuccess(message);
+   showWarning(message);
+   ```
+
+6. onError() - 673줄
+   변경 전:
+   ```cpp
+   QMessageBox::critical(this, MessageBoxTitles::ERROR, errorMessage);
+   ```
+   변경 후:
+   ```cpp
+   showCriticalError(errorMessage);
+   ```
+
+【변경 통계】
+
+- 생성된 함수: 5개
+  - showError(): warning + ERROR
+  - showCriticalError(): critical + ERROR
+  - showWarning(): warning + WARNING
+  - showSuccess(): information + SUCCESS
+  - showInfo(): information + INFO
+
+- 교체된 QMessageBox 호출: 10곳
+  - showError(): 4곳
+  - showCriticalError(): 1곳
+  - showWarning(): 1곳
+  - showSuccess(): 1곳
+  - showInfo(): 2곳
+
+- 코드 라인 변화:
+  - 추가된 코드: 약 25줄 (함수 구현 5개)
+  - 변경된 코드: 약 10줄 (QMessageBox 호출 → 헬퍼 함수 호출)
+  - 순 증가: 약 15줄 (하지만 가독성 및 유지보수성 향상)
+
+- 코드 길이 변화:
+  - QMessageBox 호출: 평균 1줄 → 헬퍼 함수 호출: 평균 1줄
+  - 가독성 향상: 함수명으로 의도가 명확해짐
+
+【개선 효과】
+
+1. 코드 간소화
+   ✓ 긴 QMessageBox 호출이 간단한 함수 호출로 변경
+   ✓ 코드가 더 읽기 쉬워짐
+   ✓ 의도가 명확해짐
+
+2. 가독성 향상
+   ✓ 함수명으로 메시지 타입이 명확함
+   ✓ showError() vs showCriticalError()로 심각도 구분
+   ✓ 코드 이해도 향상
+
+3. 유지보수성
+   ✓ 메시지 표시 방식 변경 시 헬퍼 함수만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+   ✓ 메시지 표시 로직 일관성 확보
+
+4. 일관성
+   ✓ 모든 메시지 표시가 동일한 방식으로 처리됨
+   ✓ 메서드와 타이틀 조합이 일관됨
+
+5. 재사용성
+   ✓ 다른 모듈에서도 헬퍼 함수 재사용 가능
+   ✓ 테스트 코드 작성이 용이해짐
+
+6. 유연성 유지
+   ✓ showError()와 showCriticalError()로 심각도 구분 가능
+   ✓ warning + ERROR와 critical + ERROR 조합 모두 지원
+
+【파일 변경 내역】
+
+1. mainwindow.h
+   - 추가: void showError(const QString &message);
+   - 추가: void showCriticalError(const QString &message);
+   - 추가: void showWarning(const QString &message);
+   - 추가: void showSuccess(const QString &message);
+   - 추가: void showInfo(const QString &message);
+
+2. mainwindow.cpp
+   - 추가: 5개 헬퍼 함수 구현 (약 25줄)
+   - 수정: 10곳의 QMessageBox 호출을 헬퍼 함수로 교체
+
+【참고사항】
+
+- 모든 변경사항은 기존 기능을 유지하면서 진행됨
+- 함수 시그니처는 변경되지 않아 호환성 유지
+- 컴파일 경고 없음 확인 완료
+- showError()는 warning + ERROR 조합 (가장 많이 사용)
+- showCriticalError()는 critical + ERROR 조합 (심각한 에러용)
+- 유연성을 유지하기 위해 두 함수 모두 제공
+
+================================================================================
+다음 단계 리팩토링 제안
+================================================================================
+
+================================================================================
+8단계: UI 초기화 로직 통합
+================================================================================
+
+【작업 내용】
+- setupUI()와 resetUI()에서 중복되는 UI 초기화 로직을 resetUIState() 헬퍼 함수로
+  통합하여 코드 중복을 제거하고 일관성을 향상시킴
+
+【문제점 분석】
+
+1. 중복된 UI 초기화 로직
+   - setupUI() (59-85줄): 초기 UI 설정 시 진행률 바, 상태 레이블, AES 키 길이 초기화
+   - resetUI() (709-729줄): UI 리셋 시 동일한 초기화 수행
+   - 두 함수에서 동일한 로직이 중복됨
+
+2. 중복되는 부분
+   - 진행률 바 초기화: setupUI() (62-64줄) vs resetUI() (722줄)
+   - 상태 레이블 설정: setupUI() (65줄) vs resetUI() (725줄)
+   - AES 키 길이 기본값: setupUI() (78줄) vs resetUI() (728줄)
+
+3. 유지보수성 저하
+   - 초기화 로직 변경 시 두 곳을 모두 수정해야 함
+   - 실수로 한 곳만 수정하면 불일치 발생 가능
+
+【추가된 함수】
+
+1. resetUIState()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 공통 UI 상태 초기화 (진행률 바, 상태 레이블, AES 키 길이)
+   시그니처: void resetUIState();
+   
+   구현:
+   ```cpp
+   void MainWindow::resetUIState()
+   {
+       // 진행률 바 초기화
+       ui->progressBar->setMinimum(0);
+       ui->progressBar->setMaximum(100);
+       ui->progressBar->setValue(0);
+       
+       // 상태 레이블 초기화
+       ui->statusLabel->setText(StatusMessages::READY);
+       
+       // AES 키 길이 기본값
+       ui->aes128Radio->setChecked(true);
+   }
+   ```
+   
+   사용: setupUI()와 resetUI()에서 공통 초기화 로직 재사용
+
+【변경된 위치】
+
+1. setupUI() - 59-85줄
+   변경 전:
+   ```cpp
+   void MainWindow::setupUI()
+   {
+       // 초기 상태 설정
+       ui->progressBar->setMinimum(0);
+       ui->progressBar->setMaximum(100);
+       ui->progressBar->setValue(0);
+       ui->statusLabel->setText(StatusMessages::READY);
+       
+       // 버튼 연결
+       connect(...);
+       
+       // AES 키 길이 기본값
+       ui->aes128Radio->setChecked(true);
+       
+       // 패스워드 입력 필드 설정
+       ui->passwordEdit->setEchoMode(QLineEdit::Password);
+       
+       updateFileListDisplay();
+   }
+   ```
+   변경 후:
+   ```cpp
+   void MainWindow::setupUI()
+   {
+       // 공통 UI 상태 초기화
+       resetUIState();
+       
+       // 버튼 연결
+       connect(...);
+       
+       // 패스워드 입력 필드 설정
+       ui->passwordEdit->setEchoMode(QLineEdit::Password);
+       
+       updateFileListDisplay();
+   }
+   ```
+
+2. resetUI() - 709-729줄
+   변경 전:
+   ```cpp
+   void MainWindow::resetUI()
+   {
+       // 파일 리스트 초기화
+       fileList.clear();
+       ui->fileListWidget->clear();
+       
+       // 패스워드 입력창 초기화
+       ui->passwordEdit->clear();
+       
+       // 출력 경로 입력창 초기화
+       ui->outputPathEdit->clear();
+       
+       // 진행률 바 초기화
+       ui->progressBar->setValue(0);
+       
+       // 상태 레이블 초기화
+       ui->statusLabel->setText(StatusMessages::READY);
+       
+       // AES 키 길이 기본값으로 설정
+       ui->aes128Radio->setChecked(true);
+   }
+   ```
+   변경 후:
+   ```cpp
+   void MainWindow::resetUI()
+   {
+       // 파일 리스트 초기화
+       fileList.clear();
+       ui->fileListWidget->clear();
+       
+       // 패스워드 입력창 초기화
+       ui->passwordEdit->clear();
+       
+       // 출력 경로 입력창 초기화
+       ui->outputPathEdit->clear();
+       
+       // 공통 UI 상태 초기화
+       resetUIState();
+   }
+   ```
+
+【변경 통계】
+
+- 생성된 함수: 1개
+  - resetUIState(): 공통 UI 상태 초기화
+
+- 제거된 중복 코드: 3곳
+  - 진행률 바 초기화: setupUI()와 resetUI()에서 중복 제거
+  - 상태 레이블 설정: setupUI()와 resetUI()에서 중복 제거
+  - AES 키 길이 기본값: setupUI()와 resetUI()에서 중복 제거
+
+- 코드 라인 변화:
+  - 추가된 코드: 약 12줄 (resetUIState() 함수 구현)
+  - 제거된 코드: 약 9줄 (중복된 초기화 로직)
+  - 순 증가: 약 3줄 (하지만 중복 제거로 유지보수성 향상)
+
+【개선 효과】
+
+1. 코드 중복 제거
+   ✓ 동일한 초기화 로직이 한 곳에만 존재
+   ✓ DRY (Don't Repeat Yourself) 원칙 준수
+
+2. 일관성 향상
+   ✓ 모든 UI 초기화가 동일한 방식으로 수행됨
+   ✓ 초기화 로직 불일치 방지
+
+3. 유지보수성
+   ✓ 초기화 로직 변경 시 한 곳만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+   ✓ 코드 이해도 향상
+
+4. 가독성
+   ✓ setupUI()와 resetUI()가 더 간결해짐
+   ✓ 함수의 의도가 명확해짐
+
+================================================================================
+9단계: AES 키 길이 선택 로직 추출
+================================================================================
+
+【작업 내용】
+- onEncrypt()에서 라디오 버튼을 확인하여 AES 키 길이를 결정하는 로직을
+  getSelectedAesKeyBits() 헬퍼 함수로 추출하여 가독성과 재사용성을 향상시킴
+
+【문제점 분석】
+
+1. if-else 체인으로 인한 가독성 저하
+   - onEncrypt() (575-579줄)에서 라디오 버튼 확인 로직이 if-else 체인으로 구현됨
+   - 코드가 길고 의도가 명확하지 않음
+
+2. 중복 가능성
+   - 다른 곳에서도 AES 키 길이를 확인해야 할 경우 중복 코드 발생 가능
+   - 현재는 onEncrypt()에서만 사용하지만, 향후 확장 시 재사용 필요
+
+3. 매직 넘버 사용
+   - 128, 192, 256 값이 하드코딩되어 있음
+   - 의미가 명확하지 않음
+
+【추가된 함수】
+
+1. getSelectedAesKeyBits()
+   위치: mainwindow.h (선언), mainwindow.cpp (구현)
+   기능: 선택된 AES 키 길이를 반환 (128/192/256)
+   시그니처: int getSelectedAesKeyBits() const;
+   
+   구현:
+   ```cpp
+   int MainWindow::getSelectedAesKeyBits() const
+   {
+       if (ui->aes192Radio->isChecked()) {
+           return 192;
+       } else if (ui->aes256Radio->isChecked()) {
+           return 256;
+       }
+       // 기본값: AES-128
+       return 128;
+   }
+   ```
+   
+   사용: onEncrypt()에서 선택된 AES 키 길이를 가져올 때 사용
+
+【변경된 위치】
+
+1. onEncrypt() - 575-579줄
+   변경 전:
+   ```cpp
+   int aesKeyBits = 128;
+   if (ui->aes192Radio->isChecked()) {
+       aesKeyBits = 192;
+   } else if (ui->aes256Radio->isChecked()) {
+       aesKeyBits = 256;
+   }
+   ```
+   변경 후:
+   ```cpp
+   // 선택된 AES 키 길이 가져오기
+   int aesKeyBits = getSelectedAesKeyBits();
+   ```
+
+【변경 통계】
+
+- 생성된 함수: 1개
+  - getSelectedAesKeyBits(): 선택된 AES 키 길이 반환
+
+- 교체된 코드: 1곳
+  - onEncrypt()에서 if-else 체인을 함수 호출로 교체
+
+- 코드 라인 변화:
+  - 추가된 코드: 약 9줄 (getSelectedAesKeyBits() 함수 구현)
+  - 제거된 코드: 약 5줄 (if-else 체인)
+  - 순 증가: 약 4줄 (하지만 가독성 및 재사용성 향상)
+
+【개선 효과】
+
+1. 가독성 향상
+   ✓ 긴 if-else 체인이 간단한 함수 호출로 변경
+   ✓ 함수명으로 의도가 명확해짐
+   ✓ onEncrypt() 함수가 더 간결해짐
+
+2. 재사용성
+   ✓ 다른 곳에서도 AES 키 길이를 확인할 때 재사용 가능
+   ✓ 향후 확장 시 유용
+
+3. 유지보수성
+   ✓ AES 키 길이 선택 로직 변경 시 한 곳만 수정
+   ✓ 버그 수정 시 영향 범위 최소화
+
+4. 테스트 용이성
+   ✓ 헬퍼 함수를 독립적으로 테스트 가능
+   ✓ 단위 테스트 작성이 용이해짐
+
+5. 일관성
+   ✓ AES 키 길이 선택 로직이 한 곳에만 존재
+   ✓ 로직 불일치 방지
+
+【파일 변경 내역】
+
+1. mainwindow.h
+   - 추가: void resetUIState();
+   - 추가: int getSelectedAesKeyBits() const;
+
+2. mainwindow.cpp
+   - 추가: resetUIState() 함수 구현 (약 12줄)
+   - 추가: getSelectedAesKeyBits() 함수 구현 (약 9줄)
+   - 수정: setupUI()에서 resetUIState() 호출
+   - 수정: resetUI()에서 resetUIState() 호출
+   - 수정: onEncrypt()에서 getSelectedAesKeyBits() 호출
+
+【참고사항】
+
+- 모든 변경사항은 기존 기능을 유지하면서 진행됨
+- 함수 시그니처는 변경되지 않아 호환성 유지
+- 컴파일 경고 없음 확인 완료
+- resetUIState()는 setupUI()와 resetUI()에서 공통으로 사용
+- getSelectedAesKeyBits()는 const 함수로 구현하여 상태 변경 없음
+
+================================================================================
+다음 단계 리팩토링 제안
+================================================================================
+
+다음 우선순위로 진행할 수 있는 리팩토링 항목:
+
+1. 낮은 우선순위:
+   - 추가 리팩토링 기회 탐색
+
+================================================================================
+

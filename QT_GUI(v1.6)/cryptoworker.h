@@ -15,10 +15,6 @@ public:
     explicit CryptoWorker(QObject *parent = nullptr);
 
 public slots:
-    void encryptFile(const QString &inputPath, const QString &outputPath,
-                     int aesKeyBits, const QString &password);
-    void decryptFile(const QString &inputPath, const QString &outputPath,
-                     const QString &password);
     void processFileList(const QList<QPair<QString, QString>> &fileList,
                          bool isEncrypt, int aesKeyBits, const QString &password);
 
@@ -34,6 +30,15 @@ private:
     
     // C 콜백을 Qt 시그널로 변환하는 정적 함수
     static void progressCallback(long processed, long total, void *userData);
+    
+    // 암호화/복호화 공통 로직
+    bool performEncryption(const QString &inputPath, const QString &outputPath, 
+                          int aesKeyBits, const QString &password);
+    bool performDecryption(const QString &inputPath, const QString &outputPath,
+                          const QString &password);
+    
+    // 경로 변환 유틸리티 함수
+    QByteArray toNativePathBytes(const QString &path);
 };
 
 #endif // CRYPTOWORKER_H

@@ -83,12 +83,12 @@ gcc --version
 #### 1단계: 프로젝트 폴더로 이동
 
 ```bash
-cd ~/source/repos/QT_GUI\(v1.4\)
+cd ~/source/repos/QT_GUI\(v1.6\)
 ```
 
 또는 실제 프로젝트 경로로 이동:
 ```bash
-cd /path/to/QT_GUI\(v1.4\)
+cd /path/to/QT_GUI\(v1.6\)
 ```
 
 #### 2단계: 빌드 폴더 생성
@@ -138,12 +138,7 @@ make -j$(sysctl -n hw.ncpu)
 #### 6단계: 실행
 
 ```bash
-open FileCryptoGUI.app
-```
-
-또는:
-```bash
-./FileCryptoGUI.app/Contents/MacOS/FileCryptoGUI
+open FileCryptoGUI
 ```
 
 ### 방법 2: Qt Creator에서 빌드

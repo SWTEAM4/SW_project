@@ -58,11 +58,8 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUI()
 {
-    // 초기 상태 설정
-    ui->progressBar->setMinimum(0);
-    ui->progressBar->setMaximum(100);
-    ui->progressBar->setValue(0);
-    ui->statusLabel->setText("Ready");
+    // 공통 UI 상태 초기화
+    resetUIState();
     
     // 버튼 연결
     connect(ui->selectFilesButton, &QPushButton::clicked, this, &MainWindow::onSelectFiles);
@@ -73,9 +70,6 @@ void MainWindow::setupUI()
             this, &MainWindow::onFileListSelectionChanged);
     connect(ui->encryptButton, &QPushButton::clicked, this, &MainWindow::onEncrypt);
     connect(ui->decryptButton, &QPushButton::clicked, this, &MainWindow::onDecrypt);
-    
-    // AES 키 길이 기본값
-    ui->aes128Radio->setChecked(true);
     
     // 패스워드 입력 필드 설정
     ui->passwordEdit->setEchoMode(QLineEdit::Password);
@@ -130,7 +124,7 @@ void MainWindow::dropEvent(QDropEvent *event)
 
 void MainWindow::onSelectFiles()
 {
-    QStringList files = QFileDialog::getOpenFileNames(this, "Select Files");
+    QStringList files = QFileDialog::getOpenFileNames(this, DialogTitles::SELECT_FILES);
     if (!files.isEmpty()) {
         addFilesToList(files);
     }
@@ -156,7 +150,7 @@ void MainWindow::addFilesToList(const QStringList &filePaths)
         if (!alreadyExists) {
             FileInfo fileInfo;
             fileInfo.inputPath = filePath;
-            fileInfo.isEncrypted = filePath.endsWith(".enc", Qt::CaseInsensitive);
+            fileInfo.isEncrypted = isEncryptedFile(filePath);
             // .enc 파일이면 복호화 모드(false), 아니면 암호화 모드(true)
             bool isEncrypt = !fileInfo.isEncrypted;
             fileInfo.outputPath = generateDefaultOutputPath(filePath, isEncrypt);
@@ -171,7 +165,7 @@ void MainWindow::onRemoveFile()
 {
     QListWidgetItem *item = ui->fileListWidget->currentItem();
     if (!item) {
-        QMessageBox::information(this, "Info", "Please select a file to remove.");
+        showInfo(ErrorMessages::SELECT_FILE_TO_REMOVE);
         return;
     }
     
@@ -203,8 +197,7 @@ void MainWindow::updateOutputPathForCurrentFile()
 
 QString MainWindow::readExtensionFromHeader(const QString &inputPath) const
 {
-    QString inputPathNative = QDir::toNativeSeparators(inputPath);
-    QByteArray inputBytes = inputPathNative.toUtf8();
+    QByteArray inputBytes = toNativePathBytes(inputPath);
 
     FILE* fin = platform_fopen(inputBytes.constData(), "rb");
     if (!fin) {
@@ -237,10 +230,7 @@ QString MainWindow::resolveSuggestedOutputPath(int index) const
 
     const FileInfo &fi = fileList[index];
     QFileInfo inputInfo(fi.inputPath);
-    QString baseName = inputInfo.completeBaseName();
-    if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
-        baseName.chop(4);
-    }
+    QString baseName = removeEncExtension(inputInfo.completeBaseName());
 
     if (isEncryptMode) {
         return generateDefaultOutputPath(fi.inputPath, true);
@@ -256,7 +246,7 @@ QString MainWindow::resolveSuggestedOutputPath(int index) const
         }
     } else {
         // 확장자를 모르더라도 .bin 등을 붙여 저장 가능하도록 기본 확장자 제공
-        suggested += ".bin";
+        suggested += FileExtensions::BIN;
     }
     return suggested;
 }
@@ -265,7 +255,7 @@ void MainWindow::onBrowseOutputPath()
 {
     QListWidgetItem *item = ui->fileListWidget->currentItem();
     if (!item) {
-        QMessageBox::information(this, "Info", "Please select a file first.");
+        showInfo(ErrorMessages::SELECT_FILE_FIRST);
         return;
     }
     
@@ -285,11 +275,7 @@ void MainWindow::onBrowseOutputPath()
         if (!originalExt.isEmpty()) {
             // 입력 파일명에서 직접 baseName 추출
             QFileInfo inputInfo(fileList[index].inputPath);
-            QString baseName = inputInfo.completeBaseName();
-            // .enc 제거
-            if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
-                baseName = baseName.left(baseName.length() - 4);
-            }
+            QString baseName = removeEncExtension(inputInfo.completeBaseName());
             // 원본 확장자 추가
             if (!originalExt.startsWith('.')) {
                 originalExt = "." + originalExt;
@@ -302,18 +288,18 @@ void MainWindow::onBrowseOutputPath()
     
     QString filter;
     if (isEncryptMode) {
-        filter = "Encrypted Files (*.enc)";
+        filter = FileFilters::ENCRYPTED_FILES;
     } else {
         QString ext = QFileInfo(defaultPath).suffix();
         if (!ext.isEmpty()) {
-            filter = QString("Recovered Files (*.%1);;All Files (*.*)").arg(ext);
+            filter = QString(FileFilters::RECOVERED_FILES_TEMPLATE).arg(ext);
         } else {
-            filter = "Recovered Files (*.bin);;All Files (*.*)";
+            filter = FileFilters::RECOVERED_FILES_BIN;
         }
     }
 
     QString filePath = QFileDialog::getSaveFileName(this,
-        isEncryptMode ? "Save Encrypted File" : "Save Decrypted File",
+        isEncryptMode ? DialogTitles::SAVE_ENCRYPTED_FILE : DialogTitles::SAVE_DECRYPTED_FILE,
         defaultPath, filter);
     
     if (!filePath.isEmpty()) {
@@ -342,22 +328,183 @@ void MainWindow::onOutputPathChanged()
     }
 }
 
+// .enc 확장자 처리 유틸리티 함수 구현
+bool MainWindow::isEncryptedFile(const QString &filePath)
+{
+    return filePath.endsWith(".enc", Qt::CaseInsensitive);
+}
+
+QString MainWindow::removeEncExtension(const QString &baseName)
+{
+    QString result = baseName;
+    if (result.endsWith(".enc", Qt::CaseInsensitive)) {
+        result.chop(4);  // ".enc" 제거
+    }
+    return result;
+}
+
+QString MainWindow::addEncExtension(const QString &baseName)
+{
+    if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
+        return baseName;  // 이미 .enc가 있으면 그대로 반환
+    }
+    return baseName + ".enc";
+}
+
 QString MainWindow::generateDefaultOutputPath(const QString &inputPath, bool isEncrypt) const
 {
     QFileInfo fileInfo(inputPath);
     QString separator = QDir::separator();
     
     if (isEncrypt) {
-        return fileInfo.path() + separator + fileInfo.completeBaseName() + ".enc";
+        return fileInfo.path() + separator + addEncExtension(fileInfo.completeBaseName());
     } else {
         // 복호화: 확장자 없이 경로만 반환
         // 복호화 함수가 헤더에서 읽은 원본 확장자를 자동으로 추가함
-        QString baseName = fileInfo.completeBaseName();
-        if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
-            baseName = baseName.left(baseName.length() - 4);
-        }
+        QString baseName = removeEncExtension(fileInfo.completeBaseName());
         // 확장자 없이 경로만 반환 (복호화 함수가 헤더에서 읽은 원본 확장자를 추가)
         return fileInfo.path() + separator + baseName;
+    }
+}
+
+// 파일 선택 검증 (onEncrypt와 onDecrypt에서 공통 사용)
+int MainWindow::getSelectedFileIndex() const
+{
+    QListWidgetItem *item = ui->fileListWidget->currentItem();
+    if (!item) {
+        return -1;
+    }
+    
+    int index = ui->fileListWidget->row(item);
+    if (index < 0 || index >= fileList.size()) {
+        return -1;
+    }
+    
+    return index;
+}
+
+// 확장자 정규화
+QString MainWindow::normalizeExtension(const QString &ext)
+{
+    if (ext.startsWith('.')) {
+        return ext;
+    }
+    return "." + ext;
+}
+
+// 경로 변환 유틸리티 함수 구현
+QString MainWindow::toNativePath(const QString &path)
+{
+    return QDir::toNativeSeparators(path);
+}
+
+QByteArray MainWindow::toNativePathBytes(const QString &path)
+{
+    return toNativePath(path).toUtf8();
+}
+
+// 에러 메시지 표시 헬퍼 함수 구현
+void MainWindow::showError(const QString &message)
+{
+    QMessageBox::warning(this, MessageBoxTitles::ERROR_TITLE, message);
+}
+
+void MainWindow::showCriticalError(const QString &message)
+{
+    QMessageBox::critical(this, MessageBoxTitles::ERROR_TITLE, message);
+}
+
+void MainWindow::showWarning(const QString &message)
+{
+    QMessageBox::warning(this, MessageBoxTitles::WARNING, message);
+}
+
+void MainWindow::showSuccess(const QString &message)
+{
+    QMessageBox::information(this, MessageBoxTitles::SUCCESS, message);
+}
+
+void MainWindow::showInfo(const QString &message)
+{
+    QMessageBox::information(this, MessageBoxTitles::INFO, message);
+}
+
+// 공통 UI 상태 초기화
+void MainWindow::resetUIState()
+{
+    // 진행률 바 초기화
+    ui->progressBar->setMinimum(0);
+    ui->progressBar->setMaximum(100);
+    ui->progressBar->setValue(0);
+    
+    // 상태 레이블 초기화
+    ui->statusLabel->setText(StatusMessages::READY);
+    
+    // AES 키 길이 기본값
+    ui->aes128Radio->setChecked(true);
+}
+
+// 선택된 AES 키 길이 반환
+int MainWindow::getSelectedAesKeyBits() const
+{
+    if (ui->aes192Radio->isChecked()) {
+        return 192;
+    } else if (ui->aes256Radio->isChecked()) {
+        return 256;
+    }
+    // 기본값: AES-128
+    return 128;
+}
+
+// 자동 경로 결정 (헤더 읽기)
+QString MainWindow::resolveAutoDecryptOutputPath(int index) const
+{
+    QFileInfo fileInfo(fileList[index].inputPath);
+    QString baseName = removeEncExtension(fileInfo.completeBaseName());
+    
+    // readExtensionFromHeader() 재사용
+    QString extension = readExtensionFromHeader(fileList[index].inputPath);
+    
+    if (!extension.isEmpty()) {
+        return fileInfo.path() + QDir::separator() + baseName + extension;
+    } else {
+        return fileInfo.path() + QDir::separator() + baseName;
+    }
+}
+
+// 사용자 입력 경로 결정
+QString MainWindow::resolveUserDecryptOutputPath(int index, const QString &userPath) const
+{
+    QFileInfo pathInfo(userPath);
+    QString baseName = pathInfo.completeBaseName();
+    
+    // readExtensionFromHeader() 재사용
+    QString originalExt = readExtensionFromHeader(fileList[index].inputPath);
+    
+    if (!originalExt.isEmpty()) {
+        originalExt = normalizeExtension(originalExt);
+        return pathInfo.path() + QDir::separator() + baseName + originalExt;
+    } else {
+        return userPath;
+    }
+}
+
+// 복호화 출력 경로 결정
+void MainWindow::resolveDecryptOutputPath(int index)
+{
+    QString userPath = fileList[index].outputPath;
+    QString autoPath = generateDefaultOutputPath(fileList[index].inputPath, false);
+    
+    // 경로 정규화하여 비교 (구분자 통일)
+    QString normalizedUserPath = toNativePath(userPath);
+    QString normalizedAutoPath = toNativePath(autoPath);
+    
+    if (userPath.isEmpty() || normalizedUserPath == normalizedAutoPath) {
+        // 자동 경로: 헤더에서 확장자를 읽어서 추가
+        fileList[index].outputPath = resolveAutoDecryptOutputPath(index);
+    } else {
+        // 사용자가 직접 입력한 경로: 헤더에서 읽은 원본 확장자로 설정
+        fileList[index].outputPath = resolveUserDecryptOutputPath(index, userPath);
     }
 }
 
@@ -369,8 +516,19 @@ void MainWindow::updateFileListDisplay()
         const FileInfo &fi = fileList[i];
         QFileInfo fileInfo(fi.inputPath);
         
-        // 입력 파일명: 그대로 표시
-        QString inputFileName = fileInfo.fileName();
+        // 입력 파일명: 경로에서 직접 추출 (Windows와 macOS 모두 호환)
+        QString inputFileName;
+        if (fi.inputPath.contains('/')) {
+            inputFileName = fi.inputPath.split('/').last();
+        } else if (fi.inputPath.contains('\\')) {
+            inputFileName = fi.inputPath.split('\\').last();
+        } else {
+            inputFileName = fileInfo.fileName();
+        }
+        
+        if (inputFileName.isEmpty()) {
+            inputFileName = fileInfo.fileName();
+        }
         
         // 출력 파일명 표시
         QString outputFileName;
@@ -379,28 +537,26 @@ void MainWindow::updateFileListDisplay()
             QString originalExt = readExtensionFromHeader(fi.inputPath);
             if (!originalExt.isEmpty()) {
                 // 입력 파일명에서 .enc 제거하여 baseName 추출
-                QString baseName = fileInfo.completeBaseName();
-                if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
-                    baseName = baseName.left(baseName.length() - 4);
-                }
+                QString baseName = removeEncExtension(inputFileName);
                 // 확장자가 .으로 시작하지 않으면 추가
                 if (!originalExt.startsWith('.')) {
                     originalExt = "." + originalExt;
                 }
                 outputFileName = baseName + originalExt;
             } else {
-                // 확장자를 찾을 수 없으면 기본 출력 경로 사용
-                outputFileName = QFileInfo(fi.outputPath).fileName();
+                // 확장자를 찾을 수 없으면 .bin으로 표시
+                QString baseName = removeEncExtension(inputFileName);
+                outputFileName = baseName + FileExtensions::BIN;
             }
         } else {
-            // 일반 파일인 경우: .enc 확장자로 표시
-            QFileInfo outputInfo(fi.outputPath);
-            if (outputInfo.suffix().toLower() == "enc") {
-                outputFileName = outputInfo.fileName();
-            } else {
-                // .enc가 없으면 추가
-                outputFileName = outputInfo.completeBaseName() + ".enc";
-            }
+        // 일반 파일인 경우: .enc 확장자로 표시
+        QFileInfo outputInfo(fi.outputPath);
+        if (outputInfo.suffix().toLower() == "enc") {
+            outputFileName = outputInfo.fileName();
+        } else {
+            // .enc가 없으면 추가
+            outputFileName = addEncExtension(outputInfo.completeBaseName());
+        }
         }
         
         QString displayText = QString("%1 -> %2")
@@ -421,16 +577,10 @@ void MainWindow::onEncrypt()
 {
     isEncryptMode = true;
     
-    // 현재 선택된 파일 확인
-    QListWidgetItem *item = ui->fileListWidget->currentItem();
-    if (!item) {
-        QMessageBox::warning(this, "Error", "Please select a file to encrypt.");
-        return;
-    }
-    
-    int index = ui->fileListWidget->row(item);
-    if (index < 0 || index >= fileList.size()) {
-        QMessageBox::warning(this, "Error", "Invalid file selection.");
+    // 파일 선택 검증
+    int index = getSelectedFileIndex();
+    if (index < 0) {
+        showError(ErrorMessages::SELECT_FILE_TO_ENCRYPT);
         return;
     }
     
@@ -439,15 +589,14 @@ void MainWindow::onEncrypt()
     
     QString password = ui->passwordEdit->text();
     if (password.isEmpty()) {
-        QMessageBox::warning(this, "Error", "Please enter a password.");
+        showError(ErrorMessages::ENTER_PASSWORD);
         return;
     }
     
     // 패스워드 검증
     QByteArray passwordBytes = password.toUtf8();
     if (!validate_password(passwordBytes.constData())) {
-        QMessageBox::warning(this, "Error", 
-            "Password must be alphanumeric (case-sensitive) with maximum 10 characters.");
+        showError(ErrorMessages::PASSWORD_VALIDATION);
         return;
     }
     
@@ -456,15 +605,11 @@ void MainWindow::onEncrypt()
         fileList[index].outputPath = generateDefaultOutputPath(fileList[index].inputPath, true);
     }
     
-    int aesKeyBits = 128;
-    if (ui->aes192Radio->isChecked()) {
-        aesKeyBits = 192;
-    } else if (ui->aes256Radio->isChecked()) {
-        aesKeyBits = 256;
-    }
+    // 선택된 AES 키 길이 가져오기
+    int aesKeyBits = getSelectedAesKeyBits();
     
     ui->progressBar->setValue(0);
-    ui->statusLabel->setText("Preparing encryption...");
+    ui->statusLabel->setText(StatusMessages::PREPARING_ENCRYPTION);
     enableButtons(false);
     
     // 선택된 파일만 처리
@@ -479,102 +624,29 @@ void MainWindow::onDecrypt()
 {
     isEncryptMode = false;
     
-    // 현재 선택된 파일 확인
-    QListWidgetItem *item = ui->fileListWidget->currentItem();
-    if (!item) {
-        QMessageBox::warning(this, "Error", "Please select a file to decrypt.");
-        return;
-    }
-    
-    int index = ui->fileListWidget->row(item);
-    if (index < 0 || index >= fileList.size()) {
-        QMessageBox::warning(this, "Error", "Invalid file selection.");
+    // 파일 선택 검증
+    int index = getSelectedFileIndex();
+    if (index < 0) {
+        showError(ErrorMessages::SELECT_FILE_TO_DECRYPT);
         return;
     }
     
     // 처리 중인 파일 인덱스 저장
     processingFileIndex = index;
     
+    // 패스워드 검증
     QString password = ui->passwordEdit->text();
     if (password.isEmpty()) {
-        QMessageBox::warning(this, "Error", "Please enter the password used for encryption.");
+        showError(ErrorMessages::ENTER_PASSWORD_FOR_DECRYPT);
         return;
     }
     
-    // 선택된 파일의 출력 경로 업데이트 - 헤더에서 확장자를 읽어서 추가
-    QString userPath = fileList[index].outputPath;
-    QString autoPath = generateDefaultOutputPath(fileList[index].inputPath, false);
+    // 출력 경로 결정
+    resolveDecryptOutputPath(index);
     
-    // 경로 정규화하여 비교 (구분자 통일)
-    QString normalizedUserPath = QDir::toNativeSeparators(userPath);
-    QString normalizedAutoPath = QDir::toNativeSeparators(autoPath);
-    
-    if (userPath.isEmpty() || normalizedUserPath == normalizedAutoPath) {
-        // 자동 경로: 헤더에서 확장자를 읽어서 추가
-        QFileInfo fileInfo(fileList[index].inputPath);
-        QString baseName = fileInfo.completeBaseName();
-        if (baseName.endsWith(".enc", Qt::CaseInsensitive)) {
-            baseName = baseName.left(baseName.length() - 4);
-        }
-        
-        // 헤더에서 확장자 읽기
-        QString inputPathNative = QDir::toNativeSeparators(fileList[index].inputPath);
-        QByteArray inputBytes = inputPathNative.toUtf8();
-        
-        FILE* fin = platform_fopen(inputBytes.constData(), "rb");
-        if (fin) {
-            EncFileHeader header;
-            if (fread(&header, 1, sizeof(header), fin) == sizeof(header)) {
-                // 시그니처 검증
-                if (memcmp(header.signature, ENC_SIGNATURE, 4) == 0) {
-                    // format 필드는 null 종료되지 않을 수 있으므로 직접 길이 계산
-                    size_t ext_len = 0;
-                    while (ext_len < 8 && header.format[ext_len] != 0) {
-                        ext_len++;
-                    }
-                    
-                    if (ext_len > 0) {
-                        QString extension = QString::fromUtf8((const char*)header.format, static_cast<int>(ext_len));
-                        fileList[index].outputPath = fileInfo.path() + QDir::separator() + baseName + extension;
-                    } else {
-                        // 확장자가 없으면 기본 경로 사용
-                        fileList[index].outputPath = fileInfo.path() + QDir::separator() + baseName;
-                    }
-                } else {
-                    // 유효하지 않은 파일 형식
-                    fileList[index].outputPath = fileInfo.path() + QDir::separator() + baseName;
-                }
-            } else {
-                // 헤더 읽기 실패
-                fileList[index].outputPath = fileInfo.path() + QDir::separator() + baseName;
-            }
-            fclose(fin);
-        } else {
-            // 파일 열기 실패
-            fileList[index].outputPath = fileInfo.path() + QDir::separator() + baseName;
-        }
-    } else {
-        // 사용자가 직접 입력한 경로인 경우: 항상 헤더에서 읽은 원본 확장자로 설정
-        QFileInfo pathInfo(userPath);
-        QString baseName = pathInfo.completeBaseName();
-        
-        // 헤더에서 원본 확장자 읽기
-        QString originalExt = readExtensionFromHeader(fileList[index].inputPath);
-        if (!originalExt.isEmpty()) {
-            // 확장자가 .으로 시작하지 않으면 추가
-            if (!originalExt.startsWith('.')) {
-                originalExt = "." + originalExt;
-            }
-            // baseName + 원본 확장자로 설정 (사용자가 입력한 확장자는 무시)
-            fileList[index].outputPath = pathInfo.path() + QDir::separator() + baseName + originalExt;
-        } else {
-            // 확장자를 찾을 수 없으면 사용자가 입력한 경로 그대로 사용
-            fileList[index].outputPath = userPath;
-        }
-    }
-    
+    // UI 업데이트
     ui->progressBar->setValue(0);
-    ui->statusLabel->setText("Preparing decryption...");
+    ui->statusLabel->setText(StatusMessages::PREPARING_DECRYPTION);
     enableButtons(false);
     
     // 선택된 파일만 처리
@@ -590,7 +662,7 @@ void MainWindow::onProgressUpdated(qint64 processed, qint64 total, const QString
     // total이 0이거나 음수인 경우 처리
     if (total <= 0) {
         ui->progressBar->setValue(0);
-        ui->statusLabel->setText(QString("Processing %1...").arg(QFileInfo(fileName).fileName()));
+        ui->statusLabel->setText(QString(StatusMessages::PROCESSING_TEMPLATE).arg(QFileInfo(fileName).fileName()));
         return;
     }
     
@@ -620,7 +692,7 @@ void MainWindow::onFinished(bool success, const QString &message)
     enableButtons(true);
     
     if (success) {
-        QMessageBox::information(this, "Success", message);
+        showSuccess(message);
         
         // 성공한 경우 처리된 파일만 리스트에서 제거
         if (processingFileIndex >= 0 && processingFileIndex < fileList.size()) {
@@ -638,7 +710,7 @@ void MainWindow::onFinished(bool success, const QString &message)
             updateOutputPathForCurrentFile();
         }
     } else {
-        QMessageBox::warning(this, "Warning", message);
+        showWarning(message);
     }
     
     // UI 요소만 초기화 (파일 리스트는 유지)
@@ -653,7 +725,7 @@ void MainWindow::onError(const QString &errorMessage)
 {
     ui->statusLabel->setText(errorMessage);
     enableButtons(true);
-    QMessageBox::critical(this, "Error", errorMessage);
+    showCriticalError(errorMessage);
     
     // UI 요소만 초기화 (파일 리스트는 유지)
     ui->passwordEdit->clear();
@@ -675,12 +747,6 @@ void MainWindow::resetUI()
     // 출력 경로 입력창 초기화
     ui->outputPathEdit->clear();
     
-    // 진행률 바 초기화
-    ui->progressBar->setValue(0);
-    
-    // 상태 레이블 초기화
-    ui->statusLabel->setText("Ready");
-    
-    // AES 키 길이 기본값으로 설정
-    ui->aes128Radio->setChecked(true);
+    // 공통 UI 상태 초기화
+    resetUIState();
 }

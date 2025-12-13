@@ -1,4 +1,5 @@
 #include "error_utils.h"
+#include <stdio.h>
 #include <string.h>
 #include <errno.h>
 #ifdef _WIN32

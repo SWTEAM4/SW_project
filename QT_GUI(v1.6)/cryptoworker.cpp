@@ -20,18 +20,21 @@ void CryptoWorker::progressCallback(long processed, long total, void *userData)
     }
 }
 
-void CryptoWorker::encryptFile(const QString &inputPath, const QString &outputPath,
-                               int aesKeyBits, const QString &password)
+// 경로 변환 유틸리티 함수 구현
+QByteArray CryptoWorker::toNativePathBytes(const QString &path)
 {
-    // Windows 네이티브 경로로 변환 (구분자 통일)
-    QString nativeInputPath = QDir::toNativeSeparators(inputPath);
-    QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
-    
-    // QString을 C 문자열로 변환
-    QByteArray inputBytes = nativeInputPath.toUtf8();
-    QByteArray outputBytes = nativeOutputPath.toUtf8();
-    QByteArray passwordBytes = password.toUtf8();
+    return QDir::toNativeSeparators(path).toUtf8();
+}
 
+// 암호화 공통 로직
+bool CryptoWorker::performEncryption(const QString &inputPath, const QString &outputPath, 
+                                     int aesKeyBits, const QString &password)
+{
+    // 경로를 네이티브 형식으로 변환 후 UTF-8 바이트 배열로 변환
+    QByteArray inputBytes = toNativePathBytes(inputPath);
+    QByteArray outputBytes = toNativePathBytes(outputPath);
+    QByteArray passwordBytes = password.toUtf8();
+    
     currentFileName = inputPath;
     
     // 암호화 실행 (콜백 전달)
@@ -43,26 +46,21 @@ void CryptoWorker::encryptFile(const QString &inputPath, const QString &outputPa
         progressCallback,
         this  // user_data로 this 전달
     );
-
-    if (result) {
-        emit finished(true, QString("Encryption completed: %1").arg(QFileInfo(inputPath).fileName()));
-    } else {
-        emit error(QString("Encryption failed: %1").arg(QFileInfo(inputPath).fileName()));
-    }
+    
+    return (result != 0);
 }
 
-void CryptoWorker::decryptFile(const QString &inputPath, const QString &outputPath,
-                               const QString &password)
+// 복호화 공통 로직
+bool CryptoWorker::performDecryption(const QString &inputPath, const QString &outputPath,
+                                     const QString &password)
 {
-    // Windows 네이티브 경로로 변환 (구분자 통일)
-    QString nativeInputPath = QDir::toNativeSeparators(inputPath);
-    QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
-    
-    QByteArray inputBytes = nativeInputPath.toUtf8();
-    QByteArray outputBytes = nativeOutputPath.toUtf8();
+    // 경로를 네이티브 형식으로 변환 후 UTF-8 바이트 배열로 변환
+    QByteArray inputBytes = toNativePathBytes(inputPath);
+    QByteArray outputBytes = toNativePathBytes(outputPath);
     QByteArray passwordBytes = password.toUtf8();
     
     char finalPath[512];
+    memset(finalPath, 0, sizeof(finalPath));  // 초기화
     
     currentFileName = inputPath;
     
@@ -75,12 +73,8 @@ void CryptoWorker::decryptFile(const QString &inputPath, const QString &outputPa
         progressCallback,
         this
     );
-
-    if (result) {
-        emit finished(true, QString("Decryption completed: %1").arg(QFileInfo(inputPath).fileName()));
-    } else {
-        emit error(QString("Decryption failed: %1").arg(QFileInfo(inputPath).fileName()));
-    }
+    
+    return (result != 0);
 }
 
 void CryptoWorker::processFileList(const QList<QPair<QString, QString>> &fileList,
@@ -99,28 +93,9 @@ void CryptoWorker::processFileList(const QList<QPair<QString, QString>> &fileLis
         bool success = false;
         
         if (isEncrypt) {
-            // Windows 네이티브 경로로 변환 (구분자 통일)
-            QString nativeInputPath = QDir::toNativeSeparators(inputPath);
-            QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
-            
-            QByteArray inputBytes = nativeInputPath.toUtf8();
-            QByteArray outputBytes = nativeOutputPath.toUtf8();
-            QByteArray passwordBytes = password.toUtf8();
-            
-            currentFileName = inputPath;
-            
-            int result = encrypt_file_with_progress(
-                inputBytes.constData(),
-                outputBytes.constData(),
-                aesKeyBits,
-                passwordBytes.constData(),
-                progressCallback,
-                this
-            );
-            
-            success = (result != 0);
+            success = performEncryption(inputPath, outputPath, aesKeyBits, password);
         } else {
-            // Windows 네이티브 경로로 변환 (구분자 통일)
+            // Windows 네이티브 경로로 변환 (구분자 통일) - 검증용
             QString nativeInputPath = QDir::toNativeSeparators(inputPath);
             QString nativeOutputPath = QDir::toNativeSeparators(outputPath);
             
@@ -152,46 +127,20 @@ void CryptoWorker::processFileList(const QList<QPair<QString, QString>> &fileLis
                 continue;
             }
             
-            QByteArray inputBytes = nativeInputPath.toUtf8();
-            QByteArray outputBytes = nativeOutputPath.toUtf8();
-            QByteArray passwordBytes = password.toUtf8();
+            // 복호화 실행
+            success = performDecryption(inputPath, outputPath, password);
             
-            char finalPath[512];
-            memset(finalPath, 0, sizeof(finalPath));  // 초기화
-            
-            currentFileName = inputPath;
-            
-            int result = decrypt_file_with_progress(
-                inputBytes.constData(),
-                outputBytes.constData(),
-                passwordBytes.constData(),
-                finalPath,
-                sizeof(finalPath),
-                progressCallback,
-                this
-            );
-            
-            qDebug() << "  Final path:" << QString::fromUtf8(finalPath);
-            qDebug() << "  Result:" << result;
-            
-            if (result == 0) {
+            if (!success) {
                 // 복호화 실패 시 구체적인 에러 메시지 emit
-                QString detail = QString::fromUtf8(finalPath);
-                if (detail.trimmed().isEmpty()) {
-                    detail = "No additional detail was provided.";
-                }
                 QString errorMsg = QString(
                     "Decryption failed: %1\n\nPossible causes:\n"
                     "- Wrong password\n- File is corrupted\n"
                     "- Invalid file format (not a .enc file)\n"
-                    "- Output path not writable\n\nDetails: %2")
-                    .arg(QFileInfo(inputPath).fileName())
-                    .arg(detail);
+                    "- Output path not writable")
+                    .arg(QFileInfo(inputPath).fileName());
                 qDebug() << "Decryption error:" << errorMsg;
                 emit error(errorMsg);
             }
-            
-            success = (result != 0);
         }
         
         if (success) {
